@@ -1,0 +1,158 @@
+// Physics uses thousandths of a terminal cell and a fixed 8 ms timestep.
+// Horizontal cells are roughly half as wide as terminal rows are tall.
+pub struct Game {
+    var bricks: list<i64>;
+    var paddle: i64;
+    var velocity: i64;
+    var ball_x: i64;
+    var ball_y: i64;
+    var ball_vx: i64;
+    var ball_vy: i64;
+    var score: i64;
+    var best: i64;
+    var lives: i64;
+    var level: i64;
+    var remaining: i64;
+    var combo: i64;
+    var ready: bool;
+    var paused: bool;
+    var over: bool;
+    var flash_x: i64;
+    var flash_y: i64;
+    var flash_ticks: i64;
+};
+
+pub fn magnitude(n: i64) -> i64 { return n < 0 ? -n : n; }
+
+fn set_brick(bricks: &mut list<i64>, index: i64, hp: i64) -> void {
+    bricks[index] = hp;
+}
+
+pub fn clamp(n: i64, low: i64, high: i64) -> i64 {
+    return n < low ? low : (n > high ? high : n);
+}
+
+pub fn serve(g: &mut Game) -> void {
+    g.ready = true;
+    g.ball_x = g.paddle + 4000;
+    g.ball_y = 13500;
+    g.ball_vx = 13000;
+    g.ball_vy = -9500 - clamp(g.level - 1, 0, 8) * 700;
+    g.combo = 0;
+}
+
+pub fn fill_wave(g: &mut Game) -> void {
+    g.remaining = 0;
+    for i in 0..60 {
+        // Later waves alternate full walls and staggered windows.
+        let hole: bool = g.level % 2 == 0 && (i + i / 12) % 5 == 0;
+        let hp: i64 = hole ? 0 : (g.level > 1 && i < 12 ? 2 : 1);
+        set_brick(&mut g.bricks, i, hp);
+        if hp > 0 { g.remaining += 1; }
+    }
+    serve(&mut g);
+}
+
+pub fn new_game(best: i64) -> Game {
+    var bricks: list<i64> = [];
+    for i in 0..60 { bricks.push(1); }
+    return Game {
+        bricks: bricks, paddle: 26000, velocity: 0,
+        ball_x: 30000, ball_y: 13500, ball_vx: 13000, ball_vy: -9500,
+        score: 0, best: best, lives: 3, level: 1, remaining: 60, combo: 0,
+        ready: true, paused: false, over: false,
+        flash_x: -1, flash_y: -1, flash_ticks: 0
+    };
+}
+
+pub fn launch(g: &mut Game) -> void {
+    if !g.over && !g.paused { g.ready = false; }
+}
+
+pub fn step_paddle(g: &mut Game, direction: i64) -> void {
+    if direction != 0 {
+        // Acceleration: 90 cells/s², capped at 36 cells/s.
+        g.velocity = clamp(g.velocity + direction * 720, -36000, 36000);
+    } else {
+        g.velocity = g.velocity * 85 / 100;
+        if magnitude(g.velocity) < 150 { g.velocity = 0; }
+    }
+    g.paddle += g.velocity * 8 / 1000;
+    if g.paddle < 0 { g.paddle = 0; g.velocity = 0; }
+    if g.paddle > 52000 { g.paddle = 52000; g.velocity = 0; }
+}
+
+pub fn tick(g: &mut Game, direction: i64) -> void {
+    if g.paused || g.over { return; }
+    step_paddle(&mut g, direction);
+    if g.flash_ticks > 0 { g.flash_ticks -= 1; }
+    if g.ready {
+        g.ball_x = g.paddle + 4000;
+        g.ball_y = 13500;
+        return;
+    }
+    let old_x: i64 = g.ball_x;
+    let old_y: i64 = g.ball_y;
+    g.ball_x += g.ball_vx * 8 / 1000;
+    g.ball_y += g.ball_vy * 8 / 1000;
+    if g.ball_x < 0 { g.ball_x = -g.ball_x; g.ball_vx = magnitude(g.ball_vx); }
+    if g.ball_x >= 60000 {
+        g.ball_x = 119998 - g.ball_x;
+        g.ball_vx = -magnitude(g.ball_vx);
+    }
+    if g.ball_y < 0 { g.ball_y = -g.ball_y; g.ball_vy = magnitude(g.ball_vy); }
+
+    // Sweep across the paddle plane; impact position and momentum add English.
+    if g.ball_vy > 0 && old_y < 14000 && g.ball_y >= 14000 {
+        if g.ball_x >= g.paddle - 350 && g.ball_x <= g.paddle + 8350 {
+            let offset: i64 = g.ball_x - g.paddle - 4000;
+            g.ball_vx = clamp(offset * 5 + g.velocity / 4, -26000, 26000);
+            if magnitude(g.ball_vx) < 4500 {
+                g.ball_vx = offset < 0 ? -4500 : 4500;
+            }
+            g.ball_vy = -magnitude(g.ball_vy);
+            g.ball_y = 27999 - g.ball_y;
+            g.combo = 0;
+        }
+    }
+
+    // Brick rectangles are four cells wide, with one-cell gutters.
+    for i in 0..60 {
+        if g.bricks[i] > 0 {
+            let left: i64 = (i % 12 * 5) * 1000;
+            let top: i64 = (i / 12 + 2) * 1000;
+            if g.ball_x >= left && g.ball_x < left + 4000 &&
+               g.ball_y >= top && g.ball_y < top + 1000 {
+                let hp: i64 = g.bricks[i] - 1;
+                set_brick(&mut g.bricks, i, hp);
+                g.flash_x = left / 1000 + 1;
+                g.flash_y = top / 1000;
+                g.flash_ticks = 14;
+                if old_y < top || old_y >= top + 1000 {
+                    g.ball_vy = -g.ball_vy;
+                    g.ball_y = old_y;
+                } else {
+                    g.ball_vx = -g.ball_vx;
+                    g.ball_x = old_x;
+                }
+                if g.bricks[i] == 0 {
+                    g.remaining -= 1;
+                    g.combo += 1;
+                    g.score += (5 - i / 12) * 10 * clamp(g.combo, 1, 8);
+                } else { g.score += 5; }
+                if g.score > g.best { g.best = g.score; }
+                break;
+            }
+        }
+    }
+    if g.remaining == 0 {
+        g.level += 1;
+        g.score += 500;
+        if g.score > g.best { g.best = g.score; }
+        fill_wave(&mut g);
+    } else if g.ball_y >= 16000 {
+        g.lives -= 1;
+        g.velocity = 0;
+        if g.lives == 0 { g.over = true; } else { serve(&mut g); }
+    }
+}

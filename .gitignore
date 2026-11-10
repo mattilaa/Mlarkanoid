@@ -1,0 +1,5 @@
+/build/
+/.mlang/
+*.dSYM/
+/mlang_commands.json
+/mlang_test_bin

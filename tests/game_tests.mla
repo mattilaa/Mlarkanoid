@@ -1,0 +1,177 @@
+mod game;
+mod std::testing;
+use game::*;
+use std::testing::verify;
+
+fn put(bricks: &mut list<i64>, index: i64, hp: i64) -> void {
+    bricks[index] = hp;
+}
+
+#[test]
+fn test_paddle_accelerates_brakes_and_reverses() {
+    var g: Game = new_game(0);
+    tick(&mut g, 1);
+    let initial: i64 = g.velocity;
+    for i in 0..12 { tick(&mut g, 1); }
+    verify(g.velocity > initial && g.paddle > 26000);
+    let fast: i64 = g.velocity;
+    tick(&mut g, 0);
+    verify(g.velocity < fast && g.velocity > 0);
+    for i in 0..30 { tick(&mut g, -1); }
+    verify(g.velocity < 0);
+}
+
+#[test]
+fn test_paddle_speed_cap_and_both_boundaries() {
+    var g: Game = new_game(0);
+    g.paddle = 10000;
+    for i in 0..50 { tick(&mut g, 1); }
+    verify(g.velocity == 36000);
+    for i in 0..300 { tick(&mut g, 1); }
+    verify(g.paddle == 52000 && g.velocity == 0);
+    for i in 0..400 { tick(&mut g, -1); }
+    verify(g.paddle == 0 && g.velocity == 0);
+}
+
+#[test]
+fn test_ball_follows_paddle_until_launched() {
+    var g: Game = new_game(0);
+    for i in 0..20 { tick(&mut g, -1); }
+    verify(g.ball_x == g.paddle + 4000 && g.ball_y == 13500);
+    launch(&mut g);
+    tick(&mut g, 0);
+    verify(!g.ready && g.ball_y < 13500);
+}
+
+#[test]
+fn test_walls_reflect_ball_inward() {
+    var g: Game = new_game(0);
+    g.ready = false;
+    g.ball_x = 59990;
+    g.ball_y = 10000;
+    g.ball_vx = 20000;
+    tick(&mut g, 0);
+    verify(g.ball_x < 60000 && g.ball_vx < 0);
+    g.ball_x = 10;
+    g.ball_vx = -20000;
+    tick(&mut g, 0);
+    verify(g.ball_x >= 0 && g.ball_vx > 0);
+    g.ball_x = 4500;
+    g.ball_y = 5;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.ball_y >= 0 && g.ball_vy > 0);
+}
+
+#[test]
+fn test_paddle_impact_adds_angle_and_resets_combo() {
+    var g: Game = new_game(0);
+    g.ready = false;
+    g.ball_x = g.paddle + 7500;
+    g.ball_y = 13980;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    g.combo = 4;
+    tick(&mut g, 0);
+    verify(g.ball_vy < 0 && g.ball_vx > 0 && g.combo == 0);
+}
+
+#[test]
+fn test_destroyed_brick_scores_and_reflects() {
+    var g: Game = new_game(0);
+    g.ready = false;
+    g.ball_x = 1500;
+    g.ball_y = 7020;
+    g.ball_vx = 0;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.bricks[48] == 0 && g.remaining == 59);
+    verify(g.score == 10 && g.best == 10 && g.combo == 1);
+    verify(g.ball_vy > 0);
+}
+
+#[test]
+fn test_side_impact_reflects_horizontally() {
+    var g: Game = new_game(0);
+    g.ready = false;
+    g.ball_x = 4050;
+    g.ball_y = 6500;
+    g.ball_vx = -20000;
+    g.ball_vy = 0;
+    tick(&mut g, 0);
+    verify(g.ball_vx > 0 && g.bricks[48] == 0);
+}
+
+#[test]
+fn test_armored_brick_takes_two_hits() {
+    var g: Game = new_game(0);
+    put(&mut g.bricks, 48, 2);
+    g.ready = false;
+    g.ball_x = 1500;
+    g.ball_y = 7020;
+    g.ball_vx = 0;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.bricks[48] == 1 && g.remaining == 60 && g.score == 5);
+    g.ball_y = 7020;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.bricks[48] == 0 && g.remaining == 59 && g.score == 15);
+}
+
+#[test]
+fn test_gutter_does_not_hit_neighboring_bricks() {
+    var g: Game = new_game(0);
+    g.ready = false;
+    g.ball_x = 4500;
+    g.ball_y = 7020;
+    g.ball_vx = 0;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.remaining == 60 && g.ball_vy < 0);
+}
+
+#[test]
+fn test_last_brick_advances_wave_and_waits_for_serve() {
+    var g: Game = new_game(0);
+    for i in 0..60 { put(&mut g.bricks, i, 0); }
+    put(&mut g.bricks, 48, 1);
+    g.remaining = 1;
+    g.ready = false;
+    g.ball_x = 1500;
+    g.ball_y = 7020;
+    g.ball_vx = 0;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.level == 2 && g.ready && g.remaining == 48);
+    verify(g.score == 510 && g.best == 510);
+    verify(g.bricks[1] == 2);
+}
+
+#[test]
+fn test_miss_costs_life_and_final_miss_ends_game() {
+    var g: Game = new_game(0);
+    g.ready = false;
+    g.ball_y = 15999;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.lives == 2 && g.ready && !g.over);
+    g.lives = 1;
+    g.ready = false;
+    g.ball_y = 15999;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.lives == 0 && g.over);
+    let x: i64 = g.paddle;
+    tick(&mut g, 1);
+    verify(g.paddle == x);
+}
+
+#[test]
+fn test_pause_freezes_physics_and_blocks_launch() {
+    var g: Game = new_game(1234);
+    g.paused = true;
+    launch(&mut g);
+    tick(&mut g, 1);
+    verify(g.ready && g.paddle == 26000 && g.best == 1234);
+}

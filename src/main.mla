@@ -1,0 +1,338 @@
+mod game;
+mod std::esc;
+mod std::io;
+mod std::strbuf;
+mod std::term;
+mod std::time;
+
+use game::*;
+use std::esc::*;
+use std::io::read_keycode_nonblocking;
+use std::io::stdin;
+use std::io::stdout;
+use std::io::write;
+use std::strbuf::builder_new;
+use std::strbuf::builder_append;
+use std::strbuf::builder_borrow_string;
+use std::strbuf::builder_clear;
+use std::strbuf::builder_free;
+use std::strbuf::StringBuilder;
+use std::strbuf::free;
+use std::strbuf::byte_at;
+use std::term::*;
+use std::time::now_ms;
+use std::time::sleep_ms;
+
+fn append_number(frame: StringBuilder, n: i64) -> void {
+    let s: str8 = format!("{}", n);
+    builder_append(frame, s);
+    free(s);
+}
+
+fn row_color(row: i64) -> i32 {
+    if row == 0 { return color_bright_magenta(); }
+    if row == 1 { return color_bright_red(); }
+    if row == 2 { return color_bright_yellow(); }
+    if row == 3 { return color_bright_green(); }
+    return color_bright_cyan();
+}
+
+fn intro_line(frame: StringBuilder, row: i32, col: i32, text: str8, color: i32) -> void {
+    builder_append(frame, cursor_pos(row, col));
+    builder_append(frame, fg(color));
+    builder_append(frame, text);
+}
+
+fn logo_row(row: i64) -> str8 {
+    if row == 0 { return "## ## ##     ###  ####  ## ##  ###  ## ##  ###  ##### #### "; }
+    if row == 1 { return "##### ##    ## ## ## ## ## ## ## ## ##### ## ##   #   ## ##"; }
+    if row == 2 { return "##### ##    ## ## ## ## ####  ## ## ##### ## ##   #   ## ##"; }
+    if row == 3 { return "## ## ##    ##### ####  ###   ##### ##### ## ##   #   ## ##"; }
+    if row == 4 { return "## ## ##    ##### ####  ####  ##### ## ## ## ##   #   ## ##"; }
+    if row == 5 { return "## ## ##### ## ## ## ## ## ## ## ## ## ## ## ##   #   ## ##"; }
+    if row == 6 { return "## ## ##### ## ## ## ## ## ## ## ## ## ##  ###  ##### #### "; }
+    return "";
+}
+
+fn logo_pixel(x: i64, y: i64) -> bool {
+    if x < 0 || x >= 59 || y < 0 || y >= 7 { return false; }
+    return byte_at(logo_row(y), x) == 35;
+}
+
+fn logo_gradient(row: i64) -> str8 {
+    if row == 0 { return fg_rgb(255, 65, 80); }
+    if row == 1 { return fg_rgb(255, 145, 65); }
+    if row == 2 { return fg_rgb(255, 225, 150); }
+    if row == 3 { return fg_rgb(245, 250, 255); }
+    if row == 4 { return fg_rgb(145, 225, 255); }
+    if row == 5 { return fg_rgb(65, 155, 245); }
+    return fg_rgb(65, 85, 210);
+}
+
+fn render_logo(frame: StringBuilder, elapsed: i64) -> void {
+    // Transparent lettering over an offset extrusion; half blocks bevel edges.
+    for row in 5..13 {
+        intro_line(frame, i32(row), 3, "                                                            ", color_default());
+    }
+    builder_append(frame, fg_rgb(30, 45, 105));
+    for y in 0..7 {
+        for x in 0..59 {
+            if logo_pixel(x, y) {
+                builder_append(frame, cursor_pos(i32(6 + y), i32(4 + x)));
+                builder_append(frame, "▓");
+            }
+        }
+    }
+    let glint: i64 = elapsed / 90 % 90;
+    for y in 0..7 {
+        for x in 0..59 {
+            if logo_pixel(x, y) {
+                builder_append(frame, cursor_pos(i32(5 + y), i32(3 + x)));
+                if x + y == glint { builder_append(frame, fg_rgb(255, 255, 255)); }
+                else { builder_append(frame, logo_gradient(y)); }
+                if !logo_pixel(x, y - 1) && !logo_pixel(x - 1, y) {
+                    builder_append(frame, "▟");
+                } else if !logo_pixel(x, y - 1) && !logo_pixel(x + 1, y) {
+                    builder_append(frame, "▙");
+                } else if !logo_pixel(x, y - 1) {
+                    builder_append(frame, "▄");
+                } else if !logo_pixel(x, y + 1) {
+                    builder_append(frame, "▀");
+                } else if !logo_pixel(x - 1, y) && logo_pixel(x + 1, y) {
+                    builder_append(frame, "▐");
+                } else if !logo_pixel(x + 1, y) && logo_pixel(x - 1, y) {
+                    builder_append(frame, "▌");
+                } else { builder_append(frame, "█"); }
+            }
+        }
+    }
+}
+
+fn render_intro(frame: StringBuilder, elapsed: i64) -> void {
+    builder_clear(frame);
+    builder_append(frame, reset());
+    intro_line(frame, 2, 2, "╔════════════════════════════════════════════════════════════╗", color_bright_blue());
+    for row in 3..20 {
+        intro_line(frame, i32(row), 2, "║", color_bright_blue());
+        intro_line(frame, i32(row), 63, "║", color_bright_blue());
+    }
+    intro_line(frame, 20, 2, "╚════════════════════════════════════════════════════════════╝", color_bright_blue());
+    for brick in 0..12 {
+        intro_line(frame, 3, i32(3 + brick * 5), "▀▀▀▀", row_color((brick + elapsed / 250) % 5));
+        intro_line(frame, 17, i32(3 + brick * 5), "▄▄▄▄", row_color((11 - brick + elapsed / 250) % 5));
+    }
+    intro_line(frame, 4, 22, "M L A R K A N O I D", color_bright_white());
+    render_logo(frame, elapsed);
+    intro_line(frame, 14, 17, "B R E A K   T H E   W A L L", color_bright_white());
+    intro_line(frame, 15, 14, "3 LIVES  /  NEON BRICKS  /  BIG COMBOS", color_bright_black());
+    intro_line(frame, 16, 3, "                                                            ", color_default());
+    let travel: i64 = (elapsed / 35) % 108;
+    let ball_col: i64 = 5 + (travel < 54 ? travel : 108 - travel);
+    intro_line(frame, 16, i32(ball_col), "●", color_bright_white());
+    intro_line(frame, 18, 27, "▐━━━━━━▌", color_bright_cyan());
+    intro_line(frame, 21, 19, elapsed / 650 % 2 == 0 ? "[ PRESS SPACE OR ENTER ]" : "[                     ]", color_bright_yellow());
+    intro_line(frame, 22, 13, "H/L or ←/→  ACCELERATE     P  PAUSE", color_bright_cyan());
+    intro_line(frame, 23, 19, "Q  QUIT   /   MLANG ARCADE", color_bright_black());
+    builder_append(frame, reset());
+    write(stdout(), builder_borrow_string(frame));
+}
+
+fn render(g: &Game, frame: StringBuilder, too_small: bool) -> void {
+    builder_clear(frame);
+    builder_append(frame, cursor_code(cmd_home()));
+    builder_append(frame, reset());
+    if too_small {
+        builder_append(frame, "Resize to at least 64 x 24 to play.");
+        builder_append(frame, clear_eol());
+        builder_append(frame, "\r\nQ quits. Game suspended while resizing.");
+        builder_append(frame, clear_eol());
+        write(stdout(), builder_borrow_string(frame));
+        return;
+    }
+    builder_append(frame, bold_on());
+    builder_append(frame, fg(color_bright_cyan()));
+    builder_append(frame, "  ▀▄ MLARKANOID ▄▀");
+    builder_append(frame, fg(color_bright_black()));
+    builder_append(frame, "     MLANG / TERMINAL ARCADE");
+    builder_append(frame, reset());
+    builder_append(frame, clear_eol());
+    builder_append(frame, "\r\n  SCORE ");
+    builder_append(frame, fg(color_bright_yellow()));
+    append_number(frame, g.score);
+    builder_append(frame, reset());
+    builder_append(frame, "   BEST ");
+    append_number(frame, g.best);
+    builder_append(frame, "   WAVE ");
+    append_number(frame, g.level);
+    builder_append(frame, "   LIVES ");
+    builder_append(frame, fg(color_bright_red()));
+    for i in 0..g.lives { builder_append(frame, "♥ "); }
+    builder_append(frame, reset());
+    builder_append(frame, clear_eol());
+    builder_append(frame, "\r\n");
+    builder_append(frame, clear_eol());
+    builder_append(frame, "\r\n ");
+    builder_append(frame, fg(color_bright_blue()));
+    builder_append(frame, "╔");
+    for x in 0..60 { builder_append(frame, "═"); }
+    builder_append(frame, "╗");
+    builder_append(frame, clear_eol());
+    builder_append(frame, "\r\n");
+    for y in 0..16 {
+        builder_append(frame, fg(color_bright_blue()));
+        builder_append(frame, " ║");
+        for x in 0..60 {
+            if !g.over && x == g.ball_x / 1000 && y == g.ball_y / 1000 {
+                builder_append(frame, fg(color_bright_white()));
+                builder_append(frame, "●");
+            } else if y == 14 && x >= g.paddle / 1000 && x < g.paddle / 1000 + 8 {
+                builder_append(frame, fg(color_bright_cyan()));
+                if x == g.paddle / 1000 { builder_append(frame, "▐"); }
+                else if x == g.paddle / 1000 + 7 { builder_append(frame, "▌"); }
+                else { builder_append(frame, "━"); }
+            } else if y >= 2 && y < 7 && x % 5 < 4 && g.bricks[(y - 2) * 12 + x / 5] > 0 {
+                builder_append(frame, fg(row_color(y - 2)));
+                if g.bricks[(y - 2) * 12 + x / 5] > 1 { builder_append(frame, "▓"); }
+                else { builder_append(frame, "█"); }
+            } else if g.flash_ticks > 0 && y == g.flash_y && magnitude(x - g.flash_x) < 3 {
+                builder_append(frame, fg(color_bright_yellow()));
+                builder_append(frame, "·");
+            } else if y == 15 {
+                builder_append(frame, fg(color_bright_black()));
+                builder_append(frame, "░");
+            } else { builder_append(frame, " "); }
+        }
+        builder_append(frame, fg(color_bright_blue()));
+        builder_append(frame, "║");
+        builder_append(frame, reset());
+        builder_append(frame, clear_eol());
+        builder_append(frame, "\r\n");
+    }
+    builder_append(frame, fg(color_bright_blue()));
+    builder_append(frame, " ╚");
+    for x in 0..60 { builder_append(frame, "═"); }
+    builder_append(frame, "╝");
+    builder_append(frame, reset());
+    builder_append(frame, clear_eol());
+    builder_append(frame, "\r\n  ");
+    builder_append(frame, fg(color_bright_yellow()));
+    if g.over { builder_append(frame, "GAME OVER / R to restart"); }
+    else if g.paused { builder_append(frame, "PAUSED / P to resume"); }
+    else if g.ready { builder_append(frame, "READY / SPACE to launch"); }
+    else {
+        builder_append(frame, "COMBO x");
+        append_number(frame, clamp(g.combo, 1, 8));
+        builder_append(frame, "    THRUST ");
+        for i in 0..8 {
+            builder_append(frame, magnitude(g.velocity) / 4500 > i ? "▰" : "▱");
+        }
+    }
+    builder_append(frame, reset());
+    builder_append(frame, clear_eol());
+    builder_append(frame, "\r\n  H/L or ←/→ move  SPACE launch  P pause  R restart  Q quit");
+    builder_append(frame, clear_eol());
+    write(stdout(), builder_borrow_string(frame));
+}
+
+fn main() -> i32 {
+    if stdin_is_tty() != 1 || stdout_is_tty() != 1 || supports_ansi() != 1 {
+        println!("Run ./run.sh in an ANSI terminal (at least 64 columns x 24 rows).");
+        return 1;
+    }
+    if stdin_enable_raw() != 0 {
+        println!("Unable to enable terminal raw input.");
+        return 1;
+    }
+    print!("{}{}{}", alt_screen_on(), cursor_code(cmd_hide()), cursor_code(cmd_clear_screen()));
+    var g: Game = new_game(0);
+    let frame: StringBuilder = builder_new(16000);
+    var running: bool = true;
+    var welcome: bool = true;
+    var direction: i64 = 0;
+    var input_until: i64 = 0;
+    var launch_after: i64 = 0;
+    var escape_state: i32 = 0;
+    var escape_until: i64 = 0;
+    var previous: i64 = now_ms();
+    let intro_started: i64 = previous;
+    var accumulator: i64 = 0;
+    var next_frame: i64 = 0;
+    var was_small: bool = false;
+    while running {
+        let now: i64 = now_ms();
+        let size: TermSize = stdout_size();
+        let small: bool = size.cols < 64 || size.rows < 24;
+        if now > escape_until { escape_state = 0; }
+        // Bound draining so an input flood cannot starve physics/rendering.
+        for i in 0..128 {
+            let key: i32 = read_keycode_nonblocking(stdin());
+            if key == -2 { break; }
+            if key == -1 || key == 3 || key == 113 || key == 81 { running = false; break; }
+            if welcome {
+                if !small && (key == 32 || key == 13 || key == 10) {
+                    welcome = false;
+                    escape_state = 0;
+                    accumulator = 0;
+                    launch_after = now + 250;
+                    print!("{}", cursor_code(cmd_clear_screen()));
+                    // Give the start key time to settle before accepting a launch.
+                    break;
+                }
+                continue;
+            }
+            var movement: i64 = 0;
+            if escape_state == 1 {
+                escape_state = key == 91 || key == 79 ? 2 : 0;
+                continue;
+            }
+            if escape_state == 2 {
+                if key == 68 { movement = -1; }
+                if key == 67 { movement = 1; }
+                escape_state = 0;
+            } else if key == 27 {
+                escape_state = 1;
+                escape_until = now + 80;
+                continue;
+            } else if key == 104 || key == 72 { movement = -1; }
+            else if key == 108 || key == 76 { movement = 1; }
+            else if key == 32 && now >= launch_after { launch(&mut g); }
+            else if key == 112 || key == 80 {
+                g.paused = !g.paused;
+                direction = 0;
+                input_until = 0;
+                g.velocity = 0;
+            } else if key == 114 || key == 82 {
+                let best: i64 = g.best;
+                g = new_game(best);
+                direction = 0;
+                input_until = 0;
+            }
+            if movement != 0 {
+                // A short lease bridges terminal key repeats without key-up events.
+                direction = movement;
+                input_until = now + 180;
+            }
+        }
+        if small != was_small {
+            print!("{}", cursor_code(cmd_clear_screen()));
+            was_small = small;
+        }
+        accumulator += clamp(now - previous, 0, 64);
+        previous = now;
+        if small || welcome { accumulator = 0; }
+        while accumulator >= 8 {
+            tick(&mut g, now <= input_until ? direction : 0);
+            accumulator -= 8;
+        }
+        if now >= next_frame {
+            if welcome && !small { render_intro(frame, now - intro_started); }
+            else { render(&g, frame, small); }
+            next_frame = now + 16;
+        }
+        sleep_ms(2);
+    }
+    builder_free(frame);
+    let _ = stdin_restore();
+    print!("{}{}{}\n", reset(), cursor_code(cmd_show()), alt_screen_off());
+    return 0;
+}
