@@ -1,6 +1,7 @@
 mod game;
 mod highscores;
 mod bricks;
+mod glow;
 mod std::esc;
 mod std::io;
 mod std::strbuf;
@@ -11,6 +12,8 @@ mod std::env::detail;
 use game::*;
 use highscores::*;
 use bricks::brick_glyph;
+use glow::GlowColor;
+use glow::lsd_glow;
 use std::esc::*;
 use std::io::read_keycode_nonblocking;
 use std::io::stdin;
@@ -220,7 +223,9 @@ fn capsule_letter(kind: i64) -> str8 {
     if kind == 7 { return "A"; }
     if kind == 8 { return "D"; }
     if kind == 9 { return "H"; }
-    return "F";
+    if kind == 10 { return "F"; }
+    if kind == 11 { return "LSD"; }
+    return "V";
 }
 
 fn capsule_color(kind: i64) -> i32 {
@@ -232,6 +237,8 @@ fn capsule_color(kind: i64) -> i32 {
     if kind == 8 { return color_bright_magenta(); }
     if kind == 9 { return color_bright_red(); }
     if kind == 10 { return color_bright_yellow(); }
+    if kind == 11 { return color_bright_magenta(); }
+    if kind == 12 { return color_bright_green(); }
     return kind == 5 ? color_bright_white() : color_bright_red();
 }
 
@@ -240,8 +247,8 @@ fn capsule_background(kind: i64) -> i32 {
     if kind == 2 { return color_yellow(); }
     if kind == 3 { return color_green(); }
     if kind == 4 { return color_magenta(); }
-    if kind == 5 { return color_cyan(); }
-    if kind == 8 { return color_magenta(); }
+    if kind == 5 || kind == 12 { return color_cyan(); }
+    if kind == 8 || kind == 11 { return color_magenta(); }
     if kind == 10 { return color_yellow(); }
     return kind == 7 ? color_blue() : color_red();
 }
@@ -275,6 +282,7 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8, paddle_
     builder_append(frame, level_name(g.level));
     builder_append(frame, " / ");
     builder_append(frame, player);
+    effect_timer(frame, g.lsd_mistake_ticks > 0 ? "LSDx3!" : "LSDx3", g.lsd_ticks);
     builder_append(frame, reset());
     builder_append(frame, clear_eol());
     builder_append(frame, "\r\n  SCORE ");
@@ -291,14 +299,20 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8, paddle_
     builder_append(frame, reset());
     builder_append(frame, clear_eol());
     builder_append(frame, "\r\n  CATCH: ");
-    for kind in 1..11 {
+    for kind in 1..13 {
         builder_append(frame, fg(capsule_color(kind)));
         builder_append(frame, capsule_letter(kind));
         if kind == 5 { builder_append(frame, " full"); }
-        if kind == 6 { builder_append(frame, " blast"); }
+
         if kind == 8 { builder_append(frame, " aim"); }
         if kind == 9 { builder_append(frame, " gap"); }
         if kind == 10 { builder_append(frame, " 2x"); }
+        if kind == 12 {
+            if g.vertical_ticks > 0 {
+                builder_append(frame, ":");
+                append_number(frame, (g.vertical_ticks + 124) / 125);
+            } else { builder_append(frame, " up"); }
+        }
         builder_append(frame, " ");
     }
     builder_append(frame, reset());
@@ -313,14 +327,21 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8, paddle_
     for y in 0..16 {
         builder_append(frame, fg(color_bright_blue()));
         builder_append(frame, " ║");
+        let shade: GlowColor = lsd_glow(g.glow_phase, y);
+        if g.lsd_ticks > 0 { builder_append(frame, bg_rgb(shade.red, shade.green, shade.blue)); }
         for x in 0..60 {
             let capsule: i64 = capsule_at(g, x, y);
+            let brick: i64 = brick_at(g, x, y);
             if !g.over && x == g.ball_x / 1000 && y == g.ball_y / 1000 {
                 builder_append(frame, fg(color_bright_white()));
                 builder_append(frame, "●");
             } else if paddle_at(g, x, y) {
-                builder_append(frame, fg(color_bright_cyan()));
-                if paddle_angle(g) != 0 { builder_append(frame, paddle_glyph(g, x)); }
+                builder_append(frame, fg(g.lsd_ticks > 0 ? row_color((x + g.lsd_ticks / 30) % 5) : color_bright_cyan()));
+                if paddle_vertical(g) {
+                    if paddle_brackets && y == paddle_top(g) / 1000 { builder_append(frame, "┳"); }
+                    else if paddle_brackets && y == 13 { builder_append(frame, "┻"); }
+                    else { builder_append(frame, "┃"); }
+                } else if paddle_angle(g) != 0 { builder_append(frame, paddle_glyph(g, x)); }
                 else if paddle_brackets && x == g.paddle / 1000 { builder_append(frame, "▐"); }
                 else if paddle_brackets && x == g.paddle / 1000 + paddle_width(g) / 1000 - 1 { builder_append(frame, "▌"); }
                 else { builder_append(frame, "━"); }
@@ -335,28 +356,37 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8, paddle_
                     if offset == 1 { builder_append(frame, "K"); }
                     if offset == 2 { builder_append(frame, "E"); }
                     if offset == 3 { builder_append(frame, " "); }
-                } else if g.drop_kind[capsule] == 5 {
+                } else if g.drop_kind[capsule] == 5 || g.drop_kind[capsule] == 11 {
                     if offset == -2 { builder_append(frame, " "); }
-                    if offset == -1 { builder_append(frame, "M"); }
-                    if offset == 0 { builder_append(frame, "L"); }
-                    if offset == 1 { builder_append(frame, "A"); }
+                    if offset == -1 { builder_append(frame, g.drop_kind[capsule] == 11 ? "L" : "M"); }
+                    if offset == 0 { builder_append(frame, g.drop_kind[capsule] == 11 ? "S" : "L"); }
+                    if offset == 1 { builder_append(frame, g.drop_kind[capsule] == 11 ? "D" : "A"); }
                     if offset == 2 { builder_append(frame, " "); }
                 } else {
                     if offset < 0 { builder_append(frame, " "); }
                     else if offset > 0 { builder_append(frame, " "); }
                     else { builder_append(frame, capsule_letter(g.drop_kind[capsule])); }
                 }
-                builder_append(frame, bg(color_default()));
+                if g.lsd_ticks > 0 { builder_append(frame, bg_rgb(shade.red, shade.green, shade.blue)); }
+                else { builder_append(frame, bg(color_default())); }
             } else if g.blast_ticks > 0 && magnitude(magnitude(x - 30) + magnitude(y - 8) * 2 - (100 - g.blast_ticks) / 2) < 2 {
                 builder_append(frame, fg(color_bright_yellow()));
                 builder_append(frame, "✦");
-            } else if y >= 2 && y < 7 && x % 5 < 4 && g.bricks[(y - 2) * 12 + x / 5] > 0 {
-                builder_append(frame, fg(brick_color(g.level, (y - 2) * 12 + x / 5)));
-                let index: i64 = (y - 2) * 12 + x / 5;
-                if g.bricks[index] > 1 && (x % 5 == 0 || x % 5 == 3) {
-                    builder_append(frame, fg(color_bright_white()));
+            } else if brick >= 0 {
+                let part: i64 = (x - g.brick_shift_x) % 5;
+                if g.lsd_ticks > 0 {
+                    let phase: i64 = (1875 - g.lsd_ticks) / 30;
+                    builder_append(frame, bg((brick + phase) % 2 == 0 ? color_blue() : color_magenta()));
+                    builder_append(frame, fg(row_color((brick * 3 + part + phase) % 5)));
+                } else {
+                    builder_append(frame, fg(brick_color(g.level, brick)));
+                    if g.bricks[brick] > 1 && (part == 0 || part == 3) {
+                        builder_append(frame, fg(color_bright_white()));
+                    }
                 }
-                builder_append(frame, brick_glyph(g.level, index, g.bricks[index], x % 5));
+                builder_append(frame, brick_glyph(g.level, brick, g.bricks[brick], part));
+                if g.lsd_ticks > 0 { builder_append(frame, bg_rgb(shade.red, shade.green, shade.blue)); }
+                else { builder_append(frame, bg(color_default())); }
             } else if g.flash_ticks > 0 && y == g.flash_y && magnitude(x - g.flash_x) < 3 {
                 builder_append(frame, fg(color_bright_yellow()));
                 builder_append(frame, "·");
@@ -365,6 +395,7 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8, paddle_
                 builder_append(frame, "░");
             } else { builder_append(frame, " "); }
         }
+        builder_append(frame, bg(color_default()));
         builder_append(frame, fg(color_bright_blue()));
         builder_append(frame, "║");
         builder_append(frame, reset());
@@ -408,21 +439,49 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8, paddle_
     write(stdout(), builder_borrow_string(frame));
 }
 
+fn parse_lsd_rate(value: str8) -> i64 {
+    let count: i64 = len(value);
+    if count == 0 || count > 3 { return -1; }
+    var rate: i64 = 0;
+    for i in 0..count {
+        let digit: i64 = byte_at(value, i) - 48;
+        if digit < 0 || digit > 9 { return -1; }
+        rate = rate * 10 + digit;
+    }
+    return rate <= 100 ? rate : -1;
+}
+
 fn main() -> i32 {
     var paddle_brackets: bool = false;
+    var lsd_rate: i64 = 10;
     let arguments: list<str8> = __env_args();
     let argument_count: i64 = arguments.len();
-    for i in 1..argument_count {
+    var i: i64 = 1;
+    while i < argument_count {
         if eq(arguments[i], "--paddle-brackets") == 1 { paddle_brackets = true; }
+        else if eq(arguments[i], "--lsd-rate") == 1 {
+            i += 1;
+            if i >= argument_count {
+                println!("--lsd-rate requires a percentage from 0 to 100.");
+                return 2;
+            }
+            lsd_rate = parse_lsd_rate(arguments[i]);
+            if lsd_rate < 0 {
+                println!("--lsd-rate requires a percentage from 0 to 100.");
+                return 2;
+            }
+        }
         else if eq(arguments[i], "--help") == 1 || eq(arguments[i], "-h") == 1 {
-            println!("Usage: mlarkanoid [--paddle-brackets]");
+            println!("Usage: mlarkanoid [--paddle-brackets] [--lsd-rate PERCENT]");
             println!("  --paddle-brackets  Show decorative paddle end caps (off by default).");
+            println!("  --lsd-rate 0..100  LSD percentage of capsule drops (default: 10).");
             println!("  -h, --help         Show this help.");
             return 0;
         } else {
             println!("Unknown option: {}. Use --help for usage.", arguments[i]);
             return 2;
         }
+        i += 1;
     }
     if stdin_is_tty() != 1 || stdout_is_tty() != 1 || supports_ansi() != 1 {
         println!("Run ./run.sh in an ANSI terminal (at least 64 columns x 24 rows).");
@@ -435,7 +494,7 @@ fn main() -> i32 {
     print!("{}{}{}", alt_screen_on(), cursor_code(cmd_hide()), cursor_code(cmd_clear_screen()));
     let score_file: str8 = highscore_path();
     var scores: Highscores = load_highscores(score_file);
-    var g: Game = new_game(scores.count > 0 ? scores.points[0] : 0);
+    var g: Game = new_game_with_rate(scores.count > 0 ? scores.points[0] : 0, lsd_rate);
     var player: str8 = format!("PLAYER");
     let name_editor: StringBuilder = builder_new(32);
     var naming: bool = false;
@@ -472,7 +531,7 @@ fn main() -> i32 {
                     free(player);
                     player = normalize_name(builder_borrow_string(name_editor));
                     naming = false;
-                    g = new_game(scores.count > 0 ? scores.points[0] : 0);
+                    g = new_game_with_rate(scores.count > 0 ? scores.points[0] : 0, lsd_rate);
                     last_recorded = 0;
                     over_seen = false;
                     launch_after = now + 250;
@@ -509,7 +568,7 @@ fn main() -> i32 {
             }
             if showing_scores {
                 if g.over && (key == 114 || key == 82) {
-                    g = new_game(scores.count > 0 ? scores.points[0] : g.best);
+                    g = new_game_with_rate(scores.count > 0 ? scores.points[0] : g.best, lsd_rate);
                     last_recorded = 0;
                     over_seen = false;
                     showing_scores = false;
@@ -567,7 +626,7 @@ fn main() -> i32 {
                 g.velocity = 0;
             } else if key == 114 || key == 82 {
                 let best: i64 = g.best;
-                g = new_game(best);
+                g = new_game_with_rate(best, lsd_rate);
                 last_recorded = 0;
                 over_seen = false;
                 direction = 0;

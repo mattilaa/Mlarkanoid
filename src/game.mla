@@ -14,8 +14,26 @@ pub struct Game {
     var scatter_ticks: i64;
     var hole_ticks: i64;
     var fast_ticks: i64;
+    var lsd_rate: i64;
+    var drop_seed: i64;
+    var glow_phase: i64;
+    var glow_direction: i64;
+    var glow_turn_ticks: i64;
+    var glow_seed: i64;
+    var lsd_ticks: i64;
+    var lsd_seed: i64;
+    var lsd_step_ticks: i64;
+    var lsd_control_ticks: i64;
+    var lsd_mistake_ticks: i64;
+    var lsd_mistake: i64;
+    var brick_shift_x: i64;
+    var brick_shift_y: i64;
+    var brick_drift_x: i64;
+    var brick_drift_y: i64;
     var direction_seed: i64;
     var side_shot: bool;
+    var vertical_ticks: i64;
+    var vertical_direction: i64;
     var angle_ticks: i64;
     var angle_direction: i64;
     var paddle: i64;
@@ -48,7 +66,7 @@ pub fn clamp(n: i64, low: i64, high: i64) -> i64 {
     return n < low ? low : (n > high ? high : n);
 }
 
-// Capsule kinds: 1 E, 2 S, 3 C, 4 P, 5 MLA, 6 NUKE, 7 A, 8 D, 9 H, 10 F.
+// Capsule kinds: 1 E, 2 S, 3 C, 4 P, 5 MLA, 6 NUKE, 7 A, 8 D, 9 H, 10 F, 11 LSD, 12 V (upright paddle).
 fn empty_slots() -> list<i64> {
     var slots: list<i64> = [];
     for i in 0..8 { slots.push(0); }
@@ -57,11 +75,29 @@ fn empty_slots() -> list<i64> {
 
 pub fn paddle_width(g: &Game) -> i64 {
     if g.mla_ticks > 0 { return 60000; }
+    if g.vertical_ticks > 0 { return 1000; }
     return g.expand_ticks > 0 ? 12000 : 8000;
 }
 
+pub fn paddle_vertical(g: &Game) -> bool { return g.vertical_ticks > 0 && g.mla_ticks == 0; }
+
+pub fn paddle_height(g: &Game) -> i64 {
+    return paddle_vertical(g) ? (g.expand_ticks > 0 ? 6000 : 4000) : 0;
+}
+
+pub fn paddle_top(g: &Game) -> i64 { return 14000 - paddle_height(g); }
+
+pub fn paddle_gap_at(g: &Game, x: i64, y: i64) -> bool {
+    if g.hole_ticks == 0 { return false; }
+    if paddle_vertical(g) {
+        let middle: i64 = 14000 - paddle_height(g) / 2;
+        return y >= middle - 1000 && y < middle + 1000;
+    }
+    return hole_at(g.paddle, paddle_width(g), x);
+}
+
 pub fn paddle_angle(g: &Game) -> i64 {
-    if g.angle_ticks == 0 || g.mla_ticks > 0 { return 0; }
+    if g.angle_ticks == 0 || g.mla_ticks > 0 || paddle_vertical(g) { return 0; }
     return g.angle_direction;
 }
 
@@ -74,6 +110,7 @@ fn surface_at(left: i64, width: i64, angle: i64, x: i64) -> i64 {
 }
 
 pub fn paddle_surface(g: &Game, x: i64) -> i64 {
+    if paddle_vertical(g) { return paddle_top(g); }
     return surface_at(g.paddle, paddle_width(g), paddle_angle(g), x);
 }
 
@@ -84,15 +121,20 @@ fn hole_at(left: i64, width: i64, x: i64) -> bool {
 }
 
 pub fn paddle_hole(g: &Game, x: i64) -> bool {
-    return g.hole_ticks > 0 && hole_at(g.paddle, paddle_width(g), x);
+    return !paddle_vertical(g) && g.hole_ticks > 0 && hole_at(g.paddle, paddle_width(g), x);
 }
 
 pub fn paddle_rest_x(g: &Game) -> i64 {
     // A held ball sits on a solid segment, never over the center gap.
+    if paddle_vertical(g) { return g.paddle + 500; }
     return g.paddle + paddle_width(g) / (g.hole_ticks > 0 ? 4 : 2);
 }
 
 pub fn paddle_at(g: &Game, x: i64, y: i64) -> bool {
+    if paddle_vertical(g) {
+        return x == g.paddle / 1000 && y >= paddle_top(g) / 1000 && y < 14 &&
+               !paddle_gap_at(g, x * 1000 + 500, y * 1000 + 500);
+    }
     if x < g.paddle / 1000 || x >= g.paddle / 1000 + paddle_width(g) / 1000 { return false; }
     if paddle_hole(g, x * 1000 + 500) { return false; }
     return y == paddle_surface(g, x * 1000 + 500) / 1000;
@@ -134,7 +176,165 @@ pub fn scatter_rebound(g: &mut Game) -> void {
     if shot == 4 { g.ball_vx = speed * 2; g.ball_vy = 0; g.side_shot = true; }
 }
 
+pub fn score_multiplier(g: &Game) -> i64 { return g.lsd_ticks > 0 ? 3 : 1; }
+
+pub fn award_points(g: &mut Game, points: i64) -> void {
+    g.score += points * score_multiplier(g);
+    if g.score > g.best { g.best = g.score; }
+}
+
+pub fn capsule_for_break(g: &mut Game) -> i64 {
+    g.drop_seed = g.drop_seed * 48271 % 2147483647;
+    if g.drop_seed % 100 < g.lsd_rate { return 11; }
+    let kind: i64 = (g.broken / 3 - 1) % 11 + 1;
+    return kind == 11 ? 12 : kind;
+}
+
+pub fn brick_left(g: &Game, index: i64) -> i64 {
+    return (index % 12 * 5 + g.brick_shift_x) * 1000;
+}
+
+pub fn brick_top(g: &Game, index: i64) -> i64 {
+    return (index / 12 + 2 + g.brick_shift_y) * 1000;
+}
+
+pub fn brick_at(g: &Game, x: i64, y: i64) -> i64 {
+    let col: i64 = x - g.brick_shift_x;
+    let row: i64 = y - g.brick_shift_y;
+    if col < 0 || col >= 60 || row < 2 || row >= 7 || col % 5 >= 4 { return -1; }
+    let index: i64 = (row - 2) * 12 + col / 5;
+    return g.bricks[index] > 0 ? index : -1;
+}
+
+fn reset_lsd(g: &mut Game) -> void {
+    g.lsd_ticks = 0;
+    g.glow_phase = 0;
+    g.glow_direction = 1;
+    g.glow_turn_ticks = 0;
+    g.lsd_step_ticks = 0;
+    g.lsd_control_ticks = 0;
+    g.lsd_mistake_ticks = 0;
+    g.lsd_mistake = 0;
+    g.brick_shift_x = 0;
+    g.brick_shift_y = 0;
+    g.brick_drift_x = 1;
+    g.brick_drift_y = 1;
+}
+
+pub fn confine_bricks(g: &mut Game) -> void {
+    var left: i64 = 60;
+    var right: i64 = 0;
+    for i in 0..60 {
+        if g.bricks[i] > 0 {
+            let x: i64 = i % 12 * 5;
+            if x < left { left = x; }
+            if x + 4 > right { right = x + 4; }
+        }
+    }
+    if left == 60 { return; }
+    g.brick_shift_x = clamp(g.brick_shift_x, -left, 60 - right);
+    // Leave the formation above even the highest point of a tilted pad.
+    let raised: bool = paddle_angle(g) != 0 || paddle_vertical(g);
+    let floor: i64 = raised ? (g.expand_ticks > 0 ? 1 : 3) : 5;
+    g.brick_shift_y = clamp(g.brick_shift_y, -2, floor);
+}
+
+pub fn tick_lsd(g: &mut Game) -> void {
+    if g.lsd_ticks == 0 { return; }
+    g.lsd_ticks -= 1;
+    if g.lsd_ticks == 0 { reset_lsd(&mut g); return; }
+    if g.glow_turn_ticks > 0 { g.glow_turn_ticks -= 1; }
+    else {
+        g.glow_seed = g.glow_seed * 48271 % 2147483647;
+        g.glow_direction = g.glow_seed % 2 == 0 ? -1 : 1;
+        g.glow_turn_ticks = 90 + g.glow_seed % 160;
+    }
+    g.glow_phase = (g.glow_phase + g.glow_direction * 3 + 1536) % 1536;
+    if g.lsd_mistake_ticks > 0 { g.lsd_mistake_ticks -= 1; }
+    if g.lsd_control_ticks > 0 { g.lsd_control_ticks -= 1; }
+    else {
+        g.lsd_seed = g.lsd_seed * 48271 % 2147483647;
+        if g.lsd_seed % 4 == 0 {
+            g.lsd_mistake = 1 + g.lsd_seed / 4 % 4;
+            g.lsd_mistake_ticks = 10 + g.lsd_seed % 11;
+        }
+        g.lsd_control_ticks = 50 + g.lsd_seed / 11 % 60;
+    }
+    if g.lsd_step_ticks > 0 { g.lsd_step_ticks -= 1; }
+    else {
+        if g.lsd_ticks <= 125 {
+            // Bring the layout home during the final second rather than teleport.
+            if g.brick_shift_x != 0 { g.brick_shift_x += g.brick_shift_x < 0 ? 1 : -1; }
+            if g.brick_shift_y != 0 { g.brick_shift_y += g.brick_shift_y < 0 ? 1 : -1; }
+            g.lsd_step_ticks = 8;
+        } else {
+            g.lsd_seed = g.lsd_seed * 48271 % 2147483647;
+            if g.lsd_seed % 3 == 0 { g.brick_drift_x = -g.brick_drift_x; }
+            if g.lsd_seed / 3 % 3 == 0 { g.brick_drift_y = -g.brick_drift_y; }
+            let x: i64 = g.brick_shift_x + g.brick_drift_x;
+            let y: i64 = g.brick_shift_y + g.brick_drift_y;
+            g.brick_shift_x = x;
+            g.brick_shift_y = y;
+            confine_bricks(&mut g);
+            if g.brick_shift_x != x { g.brick_drift_x = -g.brick_drift_x; }
+            if g.brick_shift_y != y { g.brick_drift_y = -g.brick_drift_y; }
+            g.lsd_step_ticks = 35 + g.lsd_seed % 35;
+        }
+    }
+    confine_bricks(&mut g);
+}
+
+pub fn lsd_input(g: &Game, direction: i64) -> i64 {
+    if g.lsd_ticks == 0 || g.lsd_mistake_ticks == 0 { return direction; }
+    if g.lsd_mistake == 1 { return 0; }
+    if g.lsd_mistake == 2 { return -direction; }
+    return g.lsd_mistake == 3 ? -1 : 1;
+}
+
+struct BoxContact { var time: i64; var normal: i64; };
+
+fn box_contact(old_x: i64, old_y: i64, x: i64, y: i64,
+                 old_left: i64, old_top: i64, left: i64, top: i64, width: i64, height: i64) -> BoxContact {
+    // Swept point/AABB collision in the moving brick's frame of reference.
+    let start_x: i64 = old_x - old_left;
+    let start_y: i64 = old_y - old_top;
+    let dx: i64 = x - left - start_x;
+    let dy: i64 = y - top - start_y;
+    var enter_x: i64 = -1000000000;
+    var exit_x: i64 = 1000000000;
+    var enter_y: i64 = -1000000000;
+    var exit_y: i64 = 1000000000;
+    if dx == 0 {
+        if start_x < 0 || start_x >= width { return BoxContact { time: -1, normal: 0 }; }
+    } else if dx > 0 {
+        enter_x = -start_x * 1000000 / dx;
+        exit_x = (width - start_x) * 1000000 / dx;
+    } else {
+        enter_x = (width - start_x) * 1000000 / dx;
+        exit_x = -start_x * 1000000 / dx;
+    }
+    if dy == 0 {
+        if start_y < 0 || start_y >= height { return BoxContact { time: -1, normal: 0 }; }
+    } else if dy > 0 {
+        enter_y = -start_y * 1000000 / dy;
+        exit_y = (height - start_y) * 1000000 / dy;
+    } else {
+        enter_y = (height - start_y) * 1000000 / dy;
+        exit_y = -start_y * 1000000 / dy;
+    }
+    let enter: i64 = enter_x > enter_y ? enter_x : enter_y;
+    let leave: i64 = exit_x < exit_y ? exit_x : exit_y;
+    if enter < 0 || enter > leave || leave < 0 || enter > 1000000 { return BoxContact { time: -1, normal: 0 }; }
+    let normal: i64 = enter_x > enter_y ? (dx > 0 ? -1 : 1) : (dy > 0 ? -2 : 2);
+    return BoxContact { time: enter < 0 ? 0 : enter, normal: normal };
+}
+
 pub fn clear_powerups(g: &mut Game) -> void {
+    let was_vertical: bool = paddle_vertical(g);
+    let center: i64 = g.paddle + paddle_width(g) / 2;
+    g.vertical_ticks = 0;
+    g.vertical_direction = 1;
+    reset_lsd(&mut g);
     g.mla_ticks = 0;
     g.expand_ticks = 0;
     g.slow_ticks = 0;
@@ -145,7 +345,7 @@ pub fn clear_powerups(g: &mut Game) -> void {
     g.side_shot = false;
     g.angle_ticks = 0;
     g.angle_direction = 1;
-    g.paddle = clamp(g.paddle, 0, 52000);
+    g.paddle = clamp(was_vertical ? center - 4000 : g.paddle, 0, 52000);
     for i in 0..8 { set_brick(&mut g.drop_kind, i, 0); }
 }
 
@@ -153,7 +353,7 @@ pub fn spawn_capsule(g: &mut Game, kind: i64, x: i64, y: i64) -> void {
     for i in 0..8 {
         if g.drop_kind[i] == 0 {
             set_brick(&mut g.drop_kind, i, kind);
-            set_brick(&mut g.drop_x, i, kind == 6 ? clamp(x, 2000, 56000) : x);
+            set_brick(&mut g.drop_x, i, kind == 6 ? clamp(x, 2000, 56000) : ((kind == 5 || kind == 11) ? clamp(x, 2000, 57000) : x));
             set_brick(&mut g.drop_y, i, y);
             return;
         }
@@ -163,7 +363,7 @@ pub fn spawn_capsule(g: &mut Game, kind: i64, x: i64, y: i64) -> void {
 pub fn collect_capsule(g: &mut Game, kind: i64) -> void {
     if kind == 1 {
         // Grow around the paddle center, respecting both walls.
-        if g.expand_ticks == 0 && g.mla_ticks == 0 { g.paddle = clamp(g.paddle - 2000, 0, 48000); }
+        if g.expand_ticks == 0 && g.mla_ticks == 0 && !paddle_vertical(g) { g.paddle = clamp(g.paddle - 2000, 0, 48000); }
         g.expand_ticks = 1500;
     }
     if kind == 2 { g.slow_ticks = 1250; }
@@ -189,8 +389,24 @@ pub fn collect_capsule(g: &mut Game, kind: i64) -> void {
     }
     if kind == 9 { g.hole_ticks = 1500; }
     if kind == 10 { g.fast_ticks = 1250; }
-    g.score += 100;
-    if g.score > g.best { g.best = g.score; }
+    if kind == 11 {
+        let was_active: bool = g.lsd_ticks > 0;
+        g.lsd_ticks = 1875;
+        g.lsd_seed = (g.score * 17 + g.paddle + g.broken * 31) % 2147483646 + 1;
+        g.glow_seed = g.lsd_seed * 48271 % 2147483647;
+        if !was_active { g.glow_phase = g.glow_seed % 1536; }
+        g.glow_direction = g.glow_seed % 2 == 0 ? -1 : 1;
+        g.glow_turn_ticks = 90 + g.glow_seed % 160;
+        g.lsd_step_ticks = 0;
+        g.lsd_control_ticks = 0;
+    }
+    if kind == 12 {
+        let center: i64 = g.paddle + paddle_width(g) / 2;
+        g.vertical_ticks = 1500;
+        g.vertical_direction = g.velocity < 0 ? -1 : 1;
+        g.paddle = clamp(center - paddle_width(g) / 2, 0, 60000 - paddle_width(g));
+    }
+    award_points(&mut g, 100);
 }
 
 pub fn tick_capsules(g: &mut Game) -> void {
@@ -216,8 +432,8 @@ pub fn tick_capsules(g: &mut Game) -> void {
 pub fn capsule_at(g: &Game, x: i64, y: i64) -> i64 {
     for i in 0..8 {
         let offset: i64 = x - g.drop_x[i] / 1000;
-        let left: i64 = (g.drop_kind[i] == 5 || g.drop_kind[i] == 6) ? -2 : -1;
-        let right: i64 = g.drop_kind[i] == 6 ? 3 : (g.drop_kind[i] == 5 ? 2 : 1);
+        let left: i64 = (g.drop_kind[i] == 5 || g.drop_kind[i] == 6 || g.drop_kind[i] == 11) ? -2 : -1;
+        let right: i64 = g.drop_kind[i] == 6 ? 3 : ((g.drop_kind[i] == 5 || g.drop_kind[i] == 11) ? 2 : 1);
         if g.drop_kind[i] > 0 && g.drop_y[i] / 1000 == y &&
            offset >= left && offset <= right { return i; }
     }
@@ -284,8 +500,7 @@ pub fn fill_wave(g: &mut Game) -> void {
 
 pub fn advance_wave(g: &mut Game) -> void {
     g.level += 1;
-    g.score += 500;
-    if g.score > g.best { g.best = g.score; }
+    award_points(&mut g, 500);
     fill_wave(&mut g);
 }
 
@@ -295,7 +510,7 @@ pub fn new_game(best: i64) -> Game {
     return Game {
         bricks: bricks,
         drop_kind: empty_slots(), drop_x: empty_slots(), drop_y: empty_slots(),
-        broken: 0, blast_ticks: 0, mla_ticks: 0, expand_ticks: 0, slow_ticks: 0, catch_ticks: 0, scatter_ticks: 0, hole_ticks: 0, fast_ticks: 0, direction_seed: 73, side_shot: false, angle_ticks: 0, angle_direction: 1, paddle: 26000, velocity: 0,
+        broken: 0, blast_ticks: 0, mla_ticks: 0, expand_ticks: 0, slow_ticks: 0, catch_ticks: 0, scatter_ticks: 0, hole_ticks: 0, fast_ticks: 0, lsd_rate: 10, drop_seed: 97, glow_phase: 0, glow_direction: 1, glow_turn_ticks: 0, glow_seed: 101, lsd_ticks: 0, lsd_seed: 97, lsd_step_ticks: 0, lsd_control_ticks: 0, lsd_mistake_ticks: 0, lsd_mistake: 0, brick_shift_x: 0, brick_shift_y: 0, brick_drift_x: 1, brick_drift_y: 1, direction_seed: 73, side_shot: false, vertical_ticks: 0, vertical_direction: 1, angle_ticks: 0, angle_direction: 1, paddle: 26000, velocity: 0,
         ball_x: 30000, ball_y: 13500, ball_vx: 13000, ball_vy: -9500,
         score: 0, best: best, lives: 3, level: 1, remaining: 60, combo: 0,
         ready: true, paused: false, over: false,
@@ -303,11 +518,26 @@ pub fn new_game(best: i64) -> Game {
     };
 }
 
+pub fn new_game_with_rate(best: i64, lsd_rate: i64) -> Game {
+    var g: Game = new_game(best);
+    g.lsd_rate = clamp(lsd_rate, 0, 100);
+    return g;
+}
+
 pub fn launch(g: &mut Game) -> void {
-    if !g.over && !g.paused { g.ready = false; }
+    if !g.over && !g.paused {
+        if g.ready && paddle_vertical(g) {
+            let speed: i64 = integer_sqrt((g.ball_vx / 2) * (g.ball_vx / 2) + g.ball_vy * g.ball_vy);
+            g.ball_vx = g.vertical_direction * speed * 2;
+            g.ball_vy = 0;
+            g.side_shot = true;
+        }
+        g.ready = false;
+    }
 }
 
 pub fn step_paddle(g: &mut Game, direction: i64) -> void {
+    if direction != 0 { g.vertical_direction = direction < 0 ? -1 : 1; }
     if g.angle_ticks > 0 && direction != 0 { g.angle_direction = direction < 0 ? -1 : 1; }
     if g.mla_ticks > 0 { g.paddle = 0; g.velocity = 0; return; }
     if direction != 0 {
@@ -325,26 +555,34 @@ pub fn step_paddle(g: &mut Game, direction: i64) -> void {
 
 pub fn tick(g: &mut Game, direction: i64) -> void {
     if g.paused || g.over { return; }
+    let old_shift_x: i64 = g.brick_shift_x;
+    let old_shift_y: i64 = g.brick_shift_y;
     let old_paddle: i64 = g.paddle;
     let old_width: i64 = paddle_width(g);
+    let old_height: i64 = paddle_height(g);
     let old_angle: i64 = paddle_angle(g);
+    if g.vertical_ticks > 0 { g.vertical_ticks -= 1; }
     if g.scatter_ticks > 0 { g.scatter_ticks -= 1; }
     if g.hole_ticks > 0 { g.hole_ticks -= 1; }
     if g.fast_ticks > 0 { g.fast_ticks -= 1; }
     if g.angle_ticks > 0 { g.angle_ticks -= 1; }
     if g.mla_ticks > 0 {
         g.mla_ticks -= 1;
-        if g.mla_ticks == 0 { g.paddle = 30000 - paddle_width(g) / 2; }
     }
     if g.expand_ticks > 0 {
         g.expand_ticks -= 1;
-        if g.expand_ticks == 0 && g.mla_ticks == 0 { g.paddle = clamp(g.paddle + 2000, 0, 52000); }
+    }
+    if paddle_width(g) != old_width {
+        g.paddle = clamp(old_paddle + old_width / 2 - paddle_width(g) / 2, 0, 60000 - paddle_width(g));
     }
     if g.slow_ticks > 0 { g.slow_ticks -= 1; }
     if g.catch_ticks > 0 { g.catch_ticks -= 1; }
-    step_paddle(&mut g, direction);
+    tick_lsd(&mut g);
+    let control: i64 = lsd_input(g, direction);
+    step_paddle(&mut g, control);
     if g.blast_ticks > 0 { g.blast_ticks -= 1; }
     tick_capsules(&mut g);
+    if g.lsd_ticks > 0 { confine_bricks(&mut g); }
     if g.remaining == 0 { advance_wave(&mut g); return; }
     if g.flash_ticks > 0 { g.flash_ticks -= 1; }
     if g.ready {
@@ -372,76 +610,139 @@ pub fn tick(g: &mut Game, direction: i64) -> void {
     }
     if g.ball_y < 0 { g.ball_y = -g.ball_y; g.ball_vy = magnitude(g.ball_vy); }
 
-    // Sweep against the actual surface, including paddle motion and lean.
-    // Check the crossing point rather than the end position to avoid tunneling.
-    let before: i64 = old_y - surface_at(old_paddle, old_width, old_angle, old_x);
-    let after: i64 = g.ball_y - paddle_surface(g, g.ball_x);
-    if before < 0 && after >= 0 {
-        let fraction: i64 = -before * 1000000 / (after - before);
-        let hit_x: i64 = old_x + (g.ball_x - old_x) * fraction / 1000000;
-        let hit_left: i64 = old_paddle + (g.paddle - old_paddle) * fraction / 1000000;
-        let hit_width: i64 = old_width + (paddle_width(g) - old_width) * fraction / 1000000;
-        if hit_x >= hit_left - 350 && hit_x <= hit_left + hit_width + 350 &&
-           !(g.hole_ticks > 0 && hole_at(hit_left, hit_width, hit_x)) {
-            let surface: i64 = paddle_surface(g, g.ball_x);
+    if paddle_vertical(g) {
+        let top: i64 = paddle_top(g);
+        let height: i64 = paddle_height(g);
+        let previous_top: i64 = old_height > 0 ? 14000 - old_height : top;
+        let previous_height: i64 = old_height > 0 ? old_height : height;
+        let segments: i64 = g.hole_ticks > 0 ? 2 : 1;
+        var first_time: i64 = 1000001;
+        var normal: i64 = 0;
+        var segment_top: i64 = top;
+        var segment_height: i64 = height;
+        for segment in 0..segments {
+            let part_top: i64 = segment == 0 ? top : top + height / 2 + 1000;
+            let old_top: i64 = segment == 0 ? previous_top : previous_top + previous_height / 2 + 1000;
+            let part_height: i64 = segments == 1 ? height : (height - 2000) / 2;
+            let contact: BoxContact = box_contact(old_x, old_y, g.ball_x, g.ball_y,
+                old_height > 0 ? old_paddle : g.paddle, old_top,
+                g.paddle, part_top, 1000, part_height);
+            if contact.time >= 0 && contact.time < first_time {
+                first_time = contact.time;
+                normal = contact.normal;
+                segment_top = part_top;
+                segment_height = part_height;
+            }
+        }
+        if normal != 0 {
+            let hit_y: i64 = old_y + (g.ball_y - old_y) * first_time / 1000000;
+            let speed: i64 = integer_sqrt((g.ball_vx / 2) * (g.ball_vx / 2) + g.ball_vy * g.ball_vy);
             g.side_shot = false;
-            if g.scatter_ticks > 0 {
-                scatter_rebound(&mut g);
-                g.ball_y = surface - 100;
-            } else if paddle_angle(g) != 0 {
-                let speed: i64 = diagonal_speed(g.ball_vx, g.ball_vy);
-                g.ball_vx = paddle_angle(g) * speed * 2;
+            if normal == -2 || (magnitude(normal) == 1 && hit_y < segment_top + 500) {
+                // Upper caps always return the ball to the brick field.
+                g.ball_y = segment_top - 1;
+                g.ball_vx = 0;
                 g.ball_vy = -speed;
-                g.ball_y = surface - 100;
+            } else if magnitude(normal) == 1 {
+                g.ball_x = normal < 0 ? g.paddle - 1 : g.paddle + 1001;
+                g.ball_vx = normal * speed * 2;
+                g.ball_vy = 0;
+                g.side_shot = true;
             } else {
-                let offset: i64 = (g.ball_x - g.paddle - paddle_width(g) / 2) * 8000 / paddle_width(g);
-                g.ball_vx = clamp(offset * 5 + g.velocity / 4, -26000, 26000);
-                if magnitude(g.ball_vx) < 4500 { g.ball_vx = offset < 0 ? -4500 : 4500; }
-                g.ball_vy = -magnitude(g.ball_vy);
-                g.ball_y = surface * 2 - 1 - g.ball_y;
+                g.ball_y = segment_top + segment_height;
+                g.ball_vx = 0;
+                g.ball_vy = speed;
             }
             g.combo = 0;
             if g.catch_ticks > 0 {
                 g.ready = true;
                 g.ball_x = paddle_rest_x(g);
-                g.ball_y = paddle_surface(g, g.ball_x) - 500;
+                g.ball_y = top - 500;
+            }
+        }
+    } else {
+        // Sweep against the actual surface, including paddle motion and lean.
+        // Check the crossing point rather than the end position to avoid tunneling.
+        let before: i64 = old_y - surface_at(old_paddle, old_width, old_angle, old_x);
+        let after: i64 = g.ball_y - paddle_surface(g, g.ball_x);
+        if before < 0 && after >= 0 {
+            let fraction: i64 = -before * 1000000 / (after - before);
+            let hit_x: i64 = old_x + (g.ball_x - old_x) * fraction / 1000000;
+            let hit_left: i64 = old_paddle + (g.paddle - old_paddle) * fraction / 1000000;
+            let hit_width: i64 = old_width + (paddle_width(g) - old_width) * fraction / 1000000;
+            if hit_x >= hit_left - 350 && hit_x <= hit_left + hit_width + 350 &&
+               !(g.hole_ticks > 0 && hole_at(hit_left, hit_width, hit_x)) {
+                let surface: i64 = paddle_surface(g, g.ball_x);
+                g.side_shot = false;
+                if g.scatter_ticks > 0 {
+                    scatter_rebound(&mut g);
+                    g.ball_y = surface - 100;
+                } else if paddle_angle(g) != 0 {
+                    let speed: i64 = diagonal_speed(g.ball_vx, g.ball_vy);
+                    g.ball_vx = paddle_angle(g) * speed * 2;
+                    g.ball_vy = -speed;
+                    g.ball_y = surface - 100;
+                } else {
+                    let offset: i64 = (g.ball_x - g.paddle - paddle_width(g) / 2) * 8000 / paddle_width(g);
+                    g.ball_vx = clamp(offset * 5 + g.velocity / 4, -26000, 26000);
+                    if magnitude(g.ball_vx) < 4500 { g.ball_vx = offset < 0 ? -4500 : 4500; }
+                    g.ball_vy = -magnitude(g.ball_vy);
+                    g.ball_y = surface * 2 - 1 - g.ball_y;
+                }
+                g.combo = 0;
+                if g.catch_ticks > 0 {
+                    g.ready = true;
+                    g.ball_x = paddle_rest_x(g);
+                    g.ball_y = paddle_surface(g, g.ball_x) - 500;
+                }
             }
         }
     }
 
-    // Brick rectangles are four cells wide, with one-cell gutters.
+    // Find the first contact along the ball and brick motion this timestep.
+    var hit_index: i64 = -1;
+    var hit_time: i64 = 1000001;
+    var hit_normal: i64 = 0;
     for i in 0..60 {
         if g.bricks[i] > 0 {
-            let left: i64 = (i % 12 * 5) * 1000;
-            let top: i64 = (i / 12 + 2) * 1000;
-            if g.ball_x >= left && g.ball_x < left + 4000 &&
-               g.ball_y >= top && g.ball_y < top + 1000 {
-                let hp: i64 = g.bricks[i] - 1;
-                set_brick(&mut g.bricks, i, hp);
-                g.flash_x = left / 1000 + 1;
-                g.flash_y = top / 1000;
-                g.flash_ticks = 14;
-                if old_y < top || old_y >= top + 1000 {
-                    g.ball_vy = -g.ball_vy;
-                    g.ball_y = old_y;
-                } else {
-                    g.ball_vx = -g.ball_vx;
-                    g.ball_x = old_x;
-                }
-                if g.bricks[i] == 0 {
-                    g.broken += 1;
-                    // A predictable mix ensures every power-up appears during a wave.
-                    if g.broken % 3 == 0 {
-                        spawn_capsule(&mut g, (g.broken / 3 - 1) % 10 + 1, left + 2000, top + 500);
-                    }
-                    g.remaining -= 1;
-                    g.combo += 1;
-                    g.score += (5 - i / 12) * 10 * clamp(g.combo, 1, 8);
-                } else { g.score += 5; }
-                if g.score > g.best { g.best = g.score; }
-                break;
+            let contact: BoxContact = box_contact(old_x, old_y, g.ball_x, g.ball_y,
+                (i % 12 * 5 + old_shift_x) * 1000, (i / 12 + 2 + old_shift_y) * 1000,
+                brick_left(g, i), brick_top(g, i), 4000, 1000);
+            if contact.time >= 0 && contact.time < hit_time {
+                hit_index = i;
+                hit_time = contact.time;
+                hit_normal = contact.normal;
             }
         }
+    }
+    if hit_index >= 0 {
+        let hp: i64 = g.bricks[hit_index] - 1;
+        set_brick(&mut g.bricks, hit_index, hp);
+        let left: i64 = brick_left(g, hit_index);
+        let top: i64 = brick_top(g, hit_index);
+        g.flash_x = left / 1000 + 1;
+        g.flash_y = top / 1000;
+        g.flash_ticks = 14;
+        if magnitude(hit_normal) == 1 {
+            g.ball_x = hit_normal < 0 ? left - 1 : left + 4000;
+            let speed: i64 = magnitude(g.ball_vx) < 4500 ? 4500 : magnitude(g.ball_vx);
+            g.ball_vx = hit_normal < 0 ? -speed : speed;
+        } else {
+            g.ball_y = hit_normal < 0 ? top - 1 : top + 1000;
+            let speed: i64 = magnitude(g.ball_vy) < 4500 ? 4500 : magnitude(g.ball_vy);
+            g.ball_vy = hit_normal < 0 ? -speed : speed;
+        }
+        if hp == 0 {
+            g.broken += 1;
+            if g.broken % 3 == 0 {
+                let kind: i64 = capsule_for_break(&mut g);
+                spawn_capsule(&mut g, kind, left + 2000, top + 500);
+            }
+            g.remaining -= 1;
+            g.combo += 1;
+            let points: i64 = (5 - hit_index / 12) * 10 * clamp(g.combo, 1, 8);
+            award_points(&mut g, points);
+        } else { award_points(&mut g, 5); }
     }
     if g.remaining == 0 {
         advance_wave(&mut g);

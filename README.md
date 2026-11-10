@@ -90,9 +90,10 @@ cracked plates (`╭░╱╮`) after damage.
 
 Every third destroyed brick drops a colored letter capsule. Catch it with the
 paddle for 100 points and its effect; missed capsules fall out of the arena.
-The ten capsule types cycle in order, including larger **MLA** and **NUKE** capsules.
+Normal capsule types cycle in order; LSD replaces a configurable percentage
+of capsule drops. MLA, NUKE, and LSD use larger tiles.
 They appear as solid dark colored tiles with white letters and padded edges,
-without brackets: blue E, amber S, green C, purple P, teal MLA, red NUKE, blue A, purple D, red H, and amber F.
+without brackets: blue E, amber S, green C, purple P, teal MLA, red NUKE, blue A, purple D, red H, amber F, purple LSD, and teal V.
 
 | Capsule | Effect |
 | --- | --- |
@@ -106,6 +107,8 @@ without brackets: blue E, amber S, green C, purple P, teal MLA, red NUKE, blue A
 | **D** | Paddle hits choose straight up, either diagonal, or either side for 12 seconds |
 | **H** | Open a real center gap in the paddle for 12 seconds |
 | **F** | Move the ball at 2× speed for 10 seconds |
+| **LSD** | 15 seconds of psychedelic drift, paddle mistakes, and 3× points |
+| **V** | Stand the paddle upright for 12 seconds; sides shoot sideways and the top returns balls upward |
 
 Effects can coexist. Collecting the same capsule refreshes its timer. The status
 bar shows remaining seconds; pause freezes capsules and timers. A lost life or
@@ -126,6 +129,38 @@ H removes the middle two paddle cells (four with Expand or MLA): balls and
 capsules fall through the visible gap. Caught balls rest on a solid segment.
 F refreshes rather than stacking; combined with S, the ball moves at 1.3× normal
 speed. Timers, gap collisions, and speed changes also work with tilted paddles.
+
+During LSD mode the surviving brick formation wanders up, down, left, and right
+within the available space. Brick collisions and new drops follow the moving
+formation. A glowing truecolor RGB gradient flows vertically through the arena,
+randomly switching between upward and downward motion. Its dark, softly pulsing
+colors keep the foreground readable. Neon bricks retain their blue/purple tiles, and the
+paddle occasionally hesitates, reverses input, or makes a short unwanted nudge.
+The header shows `LSDx3:seconds` (`LSDx3!` during a mistake). The formation returns
+home during the final second, and normal colors and controls resume when the
+timer ends. All brick hits, caught capsules, and wave-clear bonuses earn **3×
+points** while the mode is active, including the LSD pickup itself. Pause freezes the mode; another LSD refreshes it. A lost life or
+new wave clears it. Expiry and a lost life preserve damage to surviving bricks.
+
+Choose how often a capsule is LSD (default **10%**):
+
+```sh
+./run.sh --lsd-rate 25    # 25% of capsule drops are LSD
+./run.sh --lsd-rate 0     # disable LSD drops
+./run.sh --lsd-rate 100   # every capsule drop is LSD
+```
+
+The rate applies to the capsules released every third destroyed brick and
+persists across retries and new pilots within the same process.
+
+V makes the paddle a narrow upright bar. Keep using h/l or the arrow keys to
+move it left/right; Space launches sideways in the last movement direction.
+Its side faces shoot horizontally, and wall rebounds turn upward, letting you
+work the ball upward between a wall and the paddle. Its upper cap always sends
+the ball upward. Expand makes the bar taller, Catch holds the ball above its
+top, and H opens a two-row gap through the bar. MLA temporarily keeps the
+paddle flat and full-width; V resumes if its timer has time left. The capsule
+legend shows the V countdown. V resets on expiry, life loss, or a new wave.
 
 ## Build and test
 
@@ -152,6 +187,7 @@ The runner restores the saved terminal settings and cursor on exit or signals.
 - `src/main.mla`: nonblocking input, name entry, Hall of Fame, and rendering.
 - `src/highscores.mla`: top-10 ranking, validated loading, and atomic saving.
 - `src/bricks.mla`: themed brick glyphs and visible armor damage.
+- `src/glow.mla`: flowing RGB gradient palette for LSD mode.
 - `tests/game_tests.mla`: collisions, acceleration, lives, pause, and waves.
 - `tests/highscore_tests.mla`: ranking, persistence, file errors, and brick glyphs.
 - `scripts/build.sh`: reproducible build/test entry point.

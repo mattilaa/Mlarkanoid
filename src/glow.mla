@@ -1,0 +1,26 @@
+// Dark RGB bloom keeps white/neon game objects readable while the hue field
+// travels vertically. Integer interpolation avoids hard color-band changes.
+pub struct GlowColor { var red: i32; var green: i32; var blue: i32; };
+
+pub fn lsd_glow(phase: i64, row: i64) -> GlowColor {
+    let hue: i64 = (phase + row * 48) % 1536;
+    let sector: i64 = hue / 256;
+    let blend: i64 = hue % 256;
+    var red: i64 = 0;
+    var green: i64 = 0;
+    var blue: i64 = 0;
+    if sector == 0 { red = 255; green = blend; }
+    if sector == 1 { red = 255 - blend; green = 255; }
+    if sector == 2 { green = 255; blue = blend; }
+    if sector == 3 { green = 255 - blend; blue = 255; }
+    if sector == 4 { red = blend; blue = 255; }
+    if sector == 5 { red = 255; blue = 255 - blend; }
+    let distance: i64 = row > 7 ? row - 7 : 7 - row;
+    let pulse: i64 = phase % 256 < 128 ? phase % 256 : 255 - phase % 256;
+    let intensity: i64 = 30 + (8 - distance) * 4 + pulse / 12;
+    return GlowColor {
+        red: i32(6 + red * intensity / 255),
+        green: i32(6 + green * intensity / 255),
+        blue: i32(6 + blue * intensity / 255)
+    };
+}

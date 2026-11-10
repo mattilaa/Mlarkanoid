@@ -1,0 +1,78 @@
+mod game;
+mod glow;
+mod std::testing;
+use game::*;
+use glow::*;
+use std::testing::verify;
+
+#[test]
+fn test_rgb_glow_stays_dark_and_varies_between_rows() {
+    for phase_step in 0..100 {
+        for row in 0..16 {
+            let color: GlowColor = lsd_glow(phase_step * 15, row);
+            verify(color.red >= 6 && color.red <= 80);
+            verify(color.green >= 6 && color.green <= 80);
+            verify(color.blue >= 6 && color.blue <= 80);
+        }
+    }
+    let top: GlowColor = lsd_glow(100, 0);
+    let bottom: GlowColor = lsd_glow(100, 15);
+    verify(top.red != bottom.red || top.green != bottom.green || top.blue != bottom.blue);
+}
+
+#[test]
+fn test_rgb_glow_interpolates_smoothly_including_hue_wrap() {
+    for phase in 0..1536 {
+        for row in 0..16 {
+            let current: GlowColor = lsd_glow(phase, row);
+            let next: GlowColor = lsd_glow((phase + 1) % 1536, row);
+            verify(magnitude(current.red - next.red) <= 2);
+            verify(magnitude(current.green - next.green) <= 2);
+            verify(magnitude(current.blue - next.blue) <= 2);
+        }
+    }
+}
+
+#[test]
+fn test_glow_flows_both_ways_wraps_freezes_and_resets_at_expiry() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 11);
+    g.glow_phase = 100;
+    g.glow_turn_ticks = 100;
+    g.glow_direction = 1;
+    tick(&mut g, 0);
+    verify(g.glow_phase == 103);
+    g.glow_direction = -1;
+    tick(&mut g, 0);
+    verify(g.glow_phase == 100);
+    g.glow_phase = 0;
+    tick(&mut g, 0);
+    verify(g.glow_phase == 1533);
+    g.paused = true;
+    let ticks: i64 = g.lsd_ticks;
+    tick(&mut g, 0);
+    verify(g.glow_phase == 1533 && g.lsd_ticks == ticks);
+    g.paused = false;
+    g.lsd_ticks = 1;
+    tick(&mut g, 0);
+    verify(g.lsd_ticks == 0 && g.glow_phase == 0 && g.glow_turn_ticks == 0);
+}
+
+#[test]
+fn test_glow_random_direction_choices_and_refresh_preserve_continuity() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 11);
+    g.glow_seed = 1;
+    g.glow_turn_ticks = 0;
+    tick(&mut g, 0);
+    verify(g.glow_direction == 1 && g.glow_turn_ticks >= 90);
+    g.glow_seed = 2;
+    g.glow_turn_ticks = 0;
+    tick(&mut g, 0);
+    verify(g.glow_direction == -1 && g.glow_turn_ticks >= 90);
+    g.glow_phase = 777;
+    collect_capsule(&mut g, 11);
+    verify(g.glow_phase == 777 && g.lsd_ticks == 1875);
+    fill_wave(&mut g);
+    verify(g.glow_phase == 0 && g.lsd_ticks == 0);
+}

@@ -782,3 +782,504 @@ fn test_new_effect_timers_freeze_refresh_and_clear_with_wave() {
     fill_wave(&mut g);
     verify(g.scatter_ticks == 0 && g.hole_ticks == 0 && g.fast_ticks == 0 && !g.side_shot);
 }
+
+fn keep_two_bricks(g: &mut Game, armor: i64) -> void {
+    for i in 0..60 { put(&mut g.bricks, i, 0); }
+    put(&mut g.bricks, 48, armor);
+    put(&mut g.bricks, 49, 1);
+    g.remaining = 2;
+}
+
+#[test]
+fn test_lsd_drop_rate_endpoints_and_percentage_distribution() {
+    var g: Game = new_game_with_rate(0, 0);
+    g.broken = 3;
+    for i in 0..100 { verify(capsule_for_break(&mut g) != 11); }
+    g.lsd_rate = 100;
+    for i in 0..100 { verify(capsule_for_break(&mut g) == 11); }
+    g.lsd_rate = 25;
+    var count: i64 = 0;
+    for i in 0..1000 { if capsule_for_break(&mut g) == 11 { count += 1; } }
+    verify(count > 180 && count < 320);
+    fill_wave(&mut g);
+    verify(g.lsd_rate == 25);
+}
+
+#[test]
+fn test_lsd_capsule_spawns_and_its_large_tile_fits_both_edges() {
+    var g: Game = new_game_with_rate(0, 100);
+    g.broken = 2;
+    g.ready = false;
+    g.ball_x = 1500;
+    g.ball_y = 7020;
+    g.ball_vx = 0;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.drop_kind[0] == 11);
+    clear_powerups(&mut g);
+    spawn_capsule(&mut g, 11, 59000, 10000);
+    verify(g.drop_x[0] == 57000);
+    verify(capsule_at(&g, 55, 10) == 0 && capsule_at(&g, 59, 10) == 0);
+    verify(capsule_at(&g, 54, 10) == -1);
+    clear_powerups(&mut g);
+    spawn_capsule(&mut g, 11, 0, 10000);
+    verify(g.drop_x[0] == 2000 && capsule_at(&g, 0, 10) == 0);
+}
+
+#[test]
+fn test_lsd_timer_pause_refresh_expiry_and_damage_preservation() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 11);
+    verify(g.lsd_ticks == 1875 && g.score == 300 && score_multiplier(&g) == 3);
+    g.brick_shift_x = 1;
+    g.brick_shift_y = 2;
+    g.paused = true;
+    tick(&mut g, 1);
+    verify(g.lsd_ticks == 1875 && g.brick_shift_y == 2 && g.paddle == 26000);
+    g.paused = false;
+    put(&mut g.bricks, 48, 0);
+    g.remaining = 59;
+    g.lsd_ticks = 1;
+    tick(&mut g, 0);
+    verify(g.lsd_ticks == 0 && g.brick_shift_x == 0 && g.brick_shift_y == 0);
+    verify(g.bricks[48] == 0 && g.remaining == 59 && score_multiplier(&g) == 1);
+    collect_capsule(&mut g, 11);
+    g.lsd_ticks = 1000;
+    collect_capsule(&mut g, 11);
+    verify(g.lsd_ticks == 1875);
+}
+
+#[test]
+fn test_lsd_flow_changes_both_axes_when_space_is_available() {
+    var g: Game = new_game(0);
+    for row in 0..5 { put(&mut g.bricks, row * 12, 0); }
+    g.remaining = 55;
+    collect_capsule(&mut g, 11);
+    g.lsd_seed = 1;
+    g.lsd_control_ticks = 100;
+    g.brick_drift_x = 1;
+    g.brick_drift_y = 1;
+    tick(&mut g, 0);
+    verify(g.brick_shift_x == 1 && g.brick_shift_y == 1);
+    g.brick_shift_x = 0;
+    g.brick_shift_y = 0;
+    g.lsd_step_ticks = 0;
+    g.lsd_seed = 1;
+    g.brick_drift_x = -1;
+    g.brick_drift_y = -1;
+    tick(&mut g, 0);
+    verify(g.brick_shift_x == -1 && g.brick_shift_y == -1);
+}
+
+#[test]
+fn test_lsd_random_drift_and_paddle_stay_within_bounds() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 11);
+    var mistakes: i64 = 0;
+    var moved: bool = false;
+    for i in 0..1500 {
+        tick(&mut g, 1);
+        verify(g.brick_shift_x >= 0 && g.brick_shift_x <= 1);
+        verify(g.brick_shift_y >= -2 && g.brick_shift_y <= 5);
+        verify(g.paddle >= 0 && g.paddle + paddle_width(&g) <= 60000);
+        if g.lsd_mistake_ticks > 0 { mistakes += 1; }
+        if g.brick_shift_x != 0 || g.brick_shift_y != 0 { moved = true; }
+    }
+    verify(moved && mistakes > 0 && mistakes < 500);
+    verify(g.remaining == 60);
+}
+
+#[test]
+fn test_lsd_bounds_expand_with_empty_columns_and_avoid_tilted_paddle() {
+    var g: Game = new_game(0);
+    for row in 0..5 {
+        put(&mut g.bricks, row * 12, 0);
+        put(&mut g.bricks, row * 12 + 11, 0);
+    }
+    g.remaining = 50;
+    collect_capsule(&mut g, 11);
+    g.brick_shift_x = -100;
+    g.brick_shift_y = -100;
+    confine_bricks(&mut g);
+    verify(g.brick_shift_x == -5 && g.brick_shift_y == -2);
+    g.brick_shift_x = 100;
+    g.brick_shift_y = 100;
+    collect_capsule(&mut g, 1);
+    collect_capsule(&mut g, 7);
+    confine_bricks(&mut g);
+    verify(g.brick_shift_x == 6 && g.brick_shift_y == 1);
+}
+
+#[test]
+fn test_shifted_brick_render_mapping_matches_physics_rectangles() {
+    var g: Game = new_game(0);
+    g.level = 8;
+    fill_wave(&mut g);
+    g.brick_shift_x = -2;
+    g.brick_shift_y = 1;
+    for i in 0..60 {
+        if g.bricks[i] > 0 {
+            let left: i64 = brick_left(&g, i) / 1000;
+            let top: i64 = brick_top(&g, i) / 1000;
+            for part in 0..4 { verify(brick_at(&g, left + part, top) == i); }
+            verify(brick_at(&g, left + 4, top) == -1);
+        }
+    }
+}
+
+#[test]
+fn test_lsd_hits_and_drops_follow_the_shifted_brick() {
+    var g: Game = new_game(0);
+    keep_two_bricks(&mut g, 1);
+    collect_capsule(&mut g, 11);
+    g.lsd_rate = 0;
+    g.broken = 2;
+    g.brick_shift_x = 2;
+    g.brick_shift_y = 2;
+    g.lsd_step_ticks = 100;
+    g.lsd_control_ticks = 100;
+    g.ready = false;
+    g.ball_x = 3500;
+    g.ball_y = 9020;
+    g.ball_vx = 0;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.bricks[48] == 0 && g.remaining == 1 && g.ball_vy > 0);
+    verify(g.drop_kind[0] == 1 && g.drop_x[0] == 4000 && g.drop_y[0] == 8500);
+    verify(g.score == 330);
+}
+
+#[test]
+fn test_brick_moving_down_sweeps_into_a_stationary_ball() {
+    var g: Game = new_game(0);
+    keep_two_bricks(&mut g, 2);
+    collect_capsule(&mut g, 11);
+    g.lsd_seed = 1;
+    g.lsd_control_ticks = 100;
+    g.ready = false;
+    g.ball_x = 1500;
+    g.ball_y = 7500;
+    g.ball_vx = 0;
+    g.ball_vy = 0;
+    tick(&mut g, 0);
+    verify(g.brick_shift_y == 1 && g.bricks[48] == 1);
+    verify(g.ball_y >= 8000 && g.ball_vy > 0);
+}
+
+#[test]
+fn test_brick_moving_right_sweeps_into_a_stationary_ball() {
+    var g: Game = new_game(0);
+    keep_two_bricks(&mut g, 2);
+    collect_capsule(&mut g, 11);
+    g.lsd_seed = 1;
+    g.lsd_control_ticks = 100;
+    g.brick_drift_y = 0;
+    g.ready = false;
+    g.ball_x = 4500;
+    g.ball_y = 6500;
+    g.ball_vx = 0;
+    g.ball_vy = 0;
+    tick(&mut g, 0);
+    verify(g.brick_shift_x == 1 && g.bricks[48] == 1);
+    verify(g.ball_x >= 5000 && g.ball_vx > 0);
+}
+
+#[test]
+fn test_lsd_mistakes_temporarily_change_input_and_restore_normal_control() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 11);
+    g.lsd_mistake_ticks = 10;
+    g.lsd_mistake = 1;
+    verify(lsd_input(&g, 1) == 0);
+    g.lsd_mistake = 2;
+    verify(lsd_input(&g, 1) == -1 && lsd_input(&g, -1) == 1);
+    g.lsd_mistake = 3;
+    verify(lsd_input(&g, 0) == -1);
+    g.lsd_control_ticks = 100;
+    g.lsd_step_ticks = 100;
+    tick(&mut g, 0);
+    verify(g.velocity < 0 && g.paddle < 26000);
+    g.lsd_mistake = 4;
+    verify(lsd_input(&g, -1) == 1);
+    g.lsd_ticks = 1;
+    tick(&mut g, 0);
+    verify(lsd_input(&g, -1) == -1 && lsd_input(&g, 0) == 0);
+}
+
+#[test]
+fn test_lsd_triples_armor_break_capsule_and_wave_points() {
+    var g: Game = new_game(0);
+    keep_two_bricks(&mut g, 2);
+    collect_capsule(&mut g, 11);
+    g.lsd_step_ticks = 100;
+    g.lsd_control_ticks = 100;
+    g.ready = false;
+    g.ball_x = 1500;
+    g.ball_y = 7020;
+    g.ball_vx = 0;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.score == 315 && g.bricks[48] == 1);
+    g.ball_y = 7020;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.score == 345);
+    collect_capsule(&mut g, 4);
+    verify(g.score == 645);
+    advance_wave(&mut g);
+    verify(g.score == 2145 && g.best == 2145 && g.lsd_ticks == 0);
+    collect_capsule(&mut g, 4);
+    verify(g.score == 2245);
+}
+
+#[test]
+fn test_lsd_returns_home_before_expiry_and_clears_on_life_loss() {
+    var g: Game = new_game_with_rate(0, 75);
+    collect_capsule(&mut g, 11);
+    g.brick_shift_x = 1;
+    g.brick_shift_y = 5;
+    g.lsd_ticks = 125;
+    g.lsd_step_ticks = 0;
+    for i in 0..100 { tick(&mut g, 0); }
+    verify(g.brick_shift_x == 0 && g.brick_shift_y == 0 && g.lsd_ticks == 25);
+    g.ready = false;
+    g.ball_y = 15999;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.lives == 2 && g.lsd_ticks == 0 && g.lsd_mistake_ticks == 0);
+    verify(g.lsd_rate == 75);
+}
+
+#[test]
+fn test_v_capsule_drop_shape_and_upright_geometry() {
+    var g: Game = new_game_with_rate(0, 0);
+    g.broken = 32;
+    g.ready = false;
+    g.ball_x = 1500;
+    g.ball_y = 7020;
+    g.ball_vx = 0;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.drop_kind[0] == 12);
+    collect_capsule(&mut g, 12);
+    verify(g.vertical_ticks == 1500 && paddle_vertical(&g));
+    verify(paddle_width(&g) == 1000 && paddle_height(&g) == 4000 && paddle_top(&g) == 10000);
+    let column: i64 = g.paddle / 1000;
+    for row in 10..14 { verify(paddle_at(&g, column, row)); }
+    verify(!paddle_at(&g, column + 1, 12) && !paddle_at(&g, column, 14));
+}
+
+#[test]
+fn test_v_launches_sideways_in_last_steering_direction() {
+    for side in 0..2 {
+        var g: Game = new_game(0);
+        collect_capsule(&mut g, 12);
+        tick(&mut g, side == 0 ? -1 : 1);
+        verify(g.ball_y == 9500);
+        launch(&mut g);
+        verify(!g.ready && g.side_shot && g.ball_vy == 0);
+        verify(side == 0 ? g.ball_vx < 0 : g.ball_vx > 0);
+    }
+}
+
+#[test]
+fn test_v_sides_shoot_horizontally_from_both_faces() {
+    for side in 0..2 {
+        var g: Game = new_game(0);
+        collect_capsule(&mut g, 12);
+        g.paddle = 30000;
+        g.ready = false;
+        g.ball_x = side == 0 ? 29990 : 31010;
+        g.ball_y = 12500;
+        g.ball_vx = side == 0 ? 20000 : -20000;
+        g.ball_vy = 0;
+        tick(&mut g, 0);
+        verify(g.side_shot && g.ball_vy == 0);
+        verify(side == 0 ? g.ball_vx < 0 : g.ball_vx > 0);
+        verify(side == 0 ? g.ball_x < 30000 : g.ball_x > 31000);
+    }
+}
+
+#[test]
+fn test_v_upper_cap_and_upper_corner_bounce_upwards() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 12);
+    g.paddle = 30000;
+    g.ready = false;
+    g.ball_x = 30500;
+    g.ball_y = 9990;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ball_y < 10000 && g.ball_vy < 0 && !g.side_shot);
+    g.ball_x = 29990;
+    g.ball_y = 10200;
+    g.ball_vx = 20000;
+    g.ball_vy = 0;
+    tick(&mut g, 0);
+    verify(g.ball_y < 10000 && g.ball_vy < 0 && !g.side_shot);
+}
+
+#[test]
+fn test_v_can_work_ball_upwards_between_pad_and_wall() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 12);
+    g.paddle = 2000;
+    g.ready = false;
+    g.ball_x = 1990;
+    g.ball_y = 13500;
+    g.ball_vx = 20000;
+    g.ball_vy = 0;
+    var escaped: bool = false;
+    for i in 0..400 {
+        tick(&mut g, 0);
+        if g.ball_y < 10000 && g.ball_vy < 0 { escaped = true; break; }
+    }
+    verify(escaped && g.lives == 3);
+}
+
+#[test]
+fn test_v_has_no_invisible_horizontal_pad_and_misses_outside_its_height() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 12);
+    g.paddle = 30000;
+    g.ready = false;
+    g.ball_x = 35000;
+    g.ball_y = 13990;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ball_vy > 0 && g.ball_y > 14000);
+    g.ball_x = 29990;
+    g.ball_y = 14500;
+    g.ball_vx = 20000;
+    g.ball_vy = 0;
+    tick(&mut g, 0);
+    verify(g.ball_vx > 0 && !g.side_shot);
+}
+
+#[test]
+fn test_v_moving_side_sweeps_into_ball_and_fast_ball_cannot_tunnel() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 12);
+    g.paddle = 30000;
+    g.velocity = 36000;
+    g.ready = false;
+    g.ball_x = 31100;
+    g.ball_y = 12500;
+    g.ball_vx = 0;
+    g.ball_vy = 0;
+    tick(&mut g, 1);
+    verify(g.ball_vx > 0 && g.side_shot);
+    collect_capsule(&mut g, 10);
+    g.paddle = 30000;
+    g.velocity = 0;
+    g.ball_x = 29990;
+    g.ball_y = 12500;
+    g.ball_vx = 100000;
+    g.ball_vy = 0;
+    tick(&mut g, 0);
+    verify(g.ball_vx < 0 && g.ball_x < 30000);
+}
+
+#[test]
+fn test_v_center_gap_is_visible_and_ball_passes_through_it() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 12);
+    collect_capsule(&mut g, 9);
+    g.paddle = 30000;
+    verify(paddle_at(&g, 30, 10) && !paddle_at(&g, 30, 11));
+    verify(!paddle_at(&g, 30, 12) && paddle_at(&g, 30, 13));
+    g.ready = false;
+    g.ball_x = 29990;
+    g.ball_y = 12000;
+    g.ball_vx = 20000;
+    g.ball_vy = 0;
+    tick(&mut g, 0);
+    verify(g.ball_vx > 0 && !g.side_shot);
+    // The lower solid segment remains a real ledge below the empty gap.
+    g.ball_x = 30500;
+    g.ball_y = 12990;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ball_vy < 0 && g.ball_y < 13000);
+}
+
+#[test]
+fn test_v_catch_rest_and_capsule_pickup_use_the_top() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 12);
+    collect_capsule(&mut g, 3);
+    g.paddle = 30000;
+    spawn_capsule(&mut g, 4, 30500, 9990);
+    g.ready = false;
+    g.ball_x = 30500;
+    g.ball_y = 9990;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ready && g.ball_y == 9500 && g.ball_x == 30500);
+    verify(g.lives == 4 && g.drop_kind[0] == 0);
+    launch(&mut g);
+    verify(g.ball_vy == 0 && g.side_shot);
+}
+
+#[test]
+fn test_v_expand_mla_tilt_and_expiry_restore_correct_shapes() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 7);
+    collect_capsule(&mut g, 12);
+    verify(paddle_angle(&g) == 0 && paddle_width(&g) == 1000);
+    let left: i64 = g.paddle;
+    collect_capsule(&mut g, 1);
+    verify(g.paddle == left && paddle_height(&g) == 6000 && paddle_top(&g) == 8000);
+    collect_capsule(&mut g, 5);
+    verify(!paddle_vertical(&g) && paddle_width(&g) == 60000);
+    g.mla_ticks = 1;
+    tick(&mut g, 0);
+    verify(paddle_vertical(&g) && paddle_height(&g) == 6000);
+    verify(g.paddle == 29500);
+    g.vertical_ticks = 1;
+    tick(&mut g, 0);
+    verify(!paddle_vertical(&g) && paddle_width(&g) == 12000 && g.paddle == 24000);
+    verify(paddle_angle(&g) != 0);
+}
+
+#[test]
+fn test_v_pause_refresh_expiry_and_new_wave_reset() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 12);
+    g.paused = true;
+    tick(&mut g, 1);
+    verify(g.vertical_ticks == 1500);
+    g.paused = false;
+    g.vertical_ticks = 200;
+    collect_capsule(&mut g, 12);
+    verify(g.vertical_ticks == 1500);
+    fill_wave(&mut g);
+    verify(g.vertical_ticks == 0 && paddle_width(&g) == 8000);
+    collect_capsule(&mut g, 12);
+    g.ready = false;
+    g.ball_y = 15999;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.lives == 2 && g.vertical_ticks == 0);
+}
+
+#[test]
+fn test_v_stays_inside_both_walls_and_lsd_bricks_stay_above_it() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 12);
+    for i in 0..500 { tick(&mut g, 1); }
+    verify(g.paddle == 59000 && g.velocity == 0);
+    for i in 0..800 { tick(&mut g, -1); }
+    verify(g.paddle == 0 && g.velocity == 0);
+    collect_capsule(&mut g, 11);
+    collect_capsule(&mut g, 1);
+    g.brick_shift_y = 5;
+    confine_bricks(&mut g);
+    verify(g.brick_shift_y == 1);
+}
