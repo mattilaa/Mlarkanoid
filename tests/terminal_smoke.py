@@ -104,7 +104,7 @@ def check_session(command, quit_key, intro_only=False):
             assert "▐━━━━━━▌" in paddle_rows[-1]
         else:
             assert "━━━━━━━━" in paddle_rows[-1] and "▐" not in paddle_rows[-1] and "▌" not in paddle_rows[-1]
-        assert b"PRISM WALL" in initial and b" + " in initial
+        assert b"PRISM WALL" in initial
         assert b"MLA full" in initial and b"NUKE" in initial
         assert b"D aim" in initial and b"H gap" in initial and b"F 2x" in initial and b"LSD" in initial and b"V up" in initial and b"XTC" in initial
         # The first brick row has several colors, rather than one row gradient.

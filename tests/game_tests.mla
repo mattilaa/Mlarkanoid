@@ -1640,3 +1640,115 @@ fn test_live_ball_chaos_combines_with_fast_and_stops_when_overlap_ends() {
     fill_wave(&mut g);
     verify(g.lsd_doses == 0 && g.xtc_doses == 0 && chaos_level(&g) == 0);
 }
+
+#[test]
+fn test_missed_x_clears_score_and_combo_but_preserves_best_and_lives() {
+    var g: Game = new_game(6000);
+    g.score = 5000;
+    g.combo = 4;
+    spawn_capsule(&mut g, 14, 2000, 15990);
+    tick(&mut g, 0);
+    verify(g.score == 0 && g.combo == 0 && g.best == 6000 && g.lives == 3);
+    verify(g.drop_kind[0] == 0 && g.score_reset_ticks == 125);
+    award_points(&mut g, 100);
+    tick(&mut g, 0);
+    verify(g.score == 100 && g.score_reset_ticks == 124);
+}
+
+#[test]
+fn test_caught_x_awards_normal_capsule_points() {
+    var g: Game = new_game(6000);
+    g.score = 5000;
+    spawn_capsule(&mut g, 14, 30000, 13990);
+    tick(&mut g, 0);
+    verify(g.score == 5100 && g.best == 6000 && g.drop_kind[0] == 0);
+    verify(g.score_reset_ticks == 0);
+}
+
+#[test]
+fn test_missing_normal_capsules_does_not_clear_score() {
+    var g: Game = new_game(6000);
+    g.score = 5000;
+    spawn_capsule(&mut g, 1, 2000, 15990);
+    tick(&mut g, 0);
+    verify(g.score == 5000 && g.drop_kind[0] == 0 && g.score_reset_ticks == 0);
+}
+
+#[test]
+fn test_x_falls_through_paddle_hole_and_clears_score() {
+    var g: Game = new_game(6000);
+    collect_capsule(&mut g, 9);
+    g.score = 5000;
+    spawn_capsule(&mut g, 14, 30000, 13990);
+    tick(&mut g, 0);
+    verify(g.drop_kind[0] == 14 && g.score == 5000);
+    for i in 0..90 { tick(&mut g, 0); }
+    verify(g.score == 0 && g.drop_kind[0] == 0);
+}
+
+#[test]
+fn test_paused_x_waits_until_game_resumes() {
+    var g: Game = new_game(6000);
+    g.score = 5000;
+    g.paused = true;
+    spawn_capsule(&mut g, 14, 2000, 15990);
+    tick(&mut g, 0);
+    verify(g.score == 5000 && g.drop_kind[0] == 14);
+    g.paused = false;
+    tick(&mut g, 0);
+    verify(g.score == 0 && g.drop_kind[0] == 0);
+}
+
+#[test]
+fn test_x_during_overlap_clears_score_and_keeps_effects() {
+    var g: Game = new_game(6000);
+    collect_capsule(&mut g, 11);
+    collect_capsule(&mut g, 13);
+    g.score = 5000;
+    spawn_capsule(&mut g, 14, 2000, 15990);
+    tick(&mut g, 0);
+    verify(g.score == 0 && g.best == 6000 && score_multiplier(&g) == 10);
+    collect_capsule(&mut g, 14);
+    verify(g.score == 1000);
+}
+
+#[test]
+fn test_wave_cleanup_does_not_count_as_missing_x() {
+    var g: Game = new_game(6000);
+    g.score = 5000;
+    spawn_capsule(&mut g, 14, 2000, 15990);
+    fill_wave(&mut g);
+    tick(&mut g, 0);
+    verify(g.score == 5000 && g.score_reset_ticks == 0);
+}
+
+#[test]
+fn test_missed_x_wins_over_same_tick_capsule_rewards() {
+    var g: Game = new_game(6000);
+    g.score = 5000;
+    spawn_capsule(&mut g, 14, 2000, 15990);
+    spawn_capsule(&mut g, 1, 30000, 13990);
+    tick(&mut g, 0);
+    verify(g.score == 0 && g.expand_ticks > 0);
+}
+
+#[test]
+fn test_regular_drop_cycle_includes_x_and_repeats() {
+    var g: Game = new_game_with_rates(0, 0, 0);
+    for i in 1..25 {
+        g.broken = i * 3;
+        let kind: i64 = capsule_for_break(&mut g);
+        let slot: i64 = (i - 1) % 12 + 1;
+        verify(kind == (slot == 11 ? 12 : (slot == 12 ? 14 : slot)));
+    }
+}
+
+#[test]
+fn test_missed_x_is_not_bypassed_by_nuke_reward() {
+    var g: Game = new_game(6000);
+    g.score = 5000;
+    spawn_capsule(&mut g, 14, 2000, 15990);
+    spawn_capsule(&mut g, 6, 30000, 13990);
+    tick_capsules(&mut g);
+    verify(g.score == 0 && g.score_reset_ticks == 125 && g.remaining == 0);
+}

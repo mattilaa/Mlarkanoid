@@ -93,7 +93,7 @@ paddle for 100 points and its effect; missed capsules fall out of the arena.
 Normal capsule types cycle in order; LSD and XTC each replace a configurable
 percentage of capsule drops. MLA, NUKE, LSD, and XTC use larger tiles.
 They appear as solid dark colored tiles with white letters and padded edges,
-without brackets: blue E, amber S, green C, purple P, teal MLA, red NUKE, blue A, purple D, red H, amber F, purple LSD, teal V, and blue XTC.
+without brackets: blue E, amber S, green C, purple P, teal MLA, red NUKE, blue A, purple D, red H, amber F, purple LSD, teal V, blue XTC, and red X.
 
 | Capsule | Effect |
 | --- | --- |
@@ -110,6 +110,7 @@ without brackets: blue E, amber S, green C, purple P, teal MLA, red NUKE, blue A
 | **LSD** | 45 seconds of psychedelic drift, paddle mistakes, and 3× points |
 | **V** | Stand the paddle upright for 12 seconds; sides shoot sideways and the top returns balls upward |
 | **XTC** | 15 seconds of stationary disco glow, matching brick colors, and 2× points |
+| **X** | Catch it for the usual capsule points; missing it resets the current score to zero |
 
 Effects can coexist. Collecting the same capsule refreshes its timer. The status
 bar shows remaining seconds; pause freezes capsules and timers. A lost life or
@@ -190,6 +191,12 @@ level 3, downward shots join the possible directions. Speed is preserved, and
 held balls stay under player control. Each mode's pickup count resets when
 that mode expires; the chaos level is capped at 8. LSD's flowing glow resumes if XTC
 ends first. XTC alone leaves controls and brick positions normal.
+
+X is a red warning capsule. If it reaches the bottom of the arena, your current
+score and combo reset to zero, with a brief `X MISSED = 0` notice. Catching it
+safely awards the normal capsule points, including active score multipliers.
+Your best score and saved Hall of Fame entries remain intact. Only actually
+missing an X causes the penalty; normal life/wave cleanup just removes drops.
 
 ## Build and test
 

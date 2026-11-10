@@ -56,6 +56,7 @@ pub struct Game {
     var ball_y: i64;
     var ball_vx: i64;
     var ball_vy: i64;
+    var score_reset_ticks: i64;
     var score: i64;
     var best: i64;
     var lives: i64;
@@ -80,7 +81,7 @@ pub fn clamp(n: i64, low: i64, high: i64) -> i64 {
     return n < low ? low : (n > high ? high : n);
 }
 
-// Capsule kinds: 1 E, 2 S, 3 C, 4 P, 5 MLA, 6 NUKE, 7 A, 8 D, 9 H, 10 F, 11 LSD, 12 V (upright paddle), 13 XTC (stationary disco glow).
+// Capsule kinds: 1 E, 2 S, 3 C, 4 P, 5 MLA, 6 NUKE, 7 A, 8 D, 9 H, 10 F, 11 LSD, 12 V (upright paddle), 13 XTC (stationary disco glow), 14 X (catch or lose current score).
 fn empty_slots() -> list<i64> {
     var slots: list<i64> = [];
     for i in 0..8 { slots.push(0); }
@@ -241,8 +242,9 @@ pub fn capsule_for_break(g: &mut Game) -> i64 {
     let roll: i64 = g.drop_seed % 100;
     if roll < g.lsd_rate { return 11; }
     if roll < g.lsd_rate + g.xtc_rate { return 13; }
-    let kind: i64 = (g.broken / 3 - 1) % 11 + 1;
-    return kind == 11 ? 12 : kind;
+    let kind: i64 = (g.broken / 3 - 1) % 12 + 1;
+    if kind == 11 { return 12; }
+    return kind == 12 ? 14 : kind;
 }
 
 pub fn brick_left(g: &Game, index: i64) -> i64 {
@@ -550,6 +552,7 @@ pub fn collect_capsule(g: &mut Game, kind: i64) -> void {
 }
 
 pub fn tick_capsules(g: &mut Game) -> void {
+    var missed_x: bool = false;
     for i in 0..8 {
         if g.drop_kind[i] > 0 {
             let old_y: i64 = g.drop_y[i];
@@ -563,9 +566,17 @@ pub fn tick_capsules(g: &mut Game) -> void {
                 let kind: i64 = g.drop_kind[i];
                 set_brick(&mut g.drop_kind, i, 0);
                 collect_capsule(&mut g, kind);
-                if kind == 6 { return; }
-            } else if y >= 16000 { set_brick(&mut g.drop_kind, i, 0); }
+                if kind == 6 { break; }
+            } else if y >= 16000 {
+                if g.drop_kind[i] == 14 { missed_x = true; }
+                set_brick(&mut g.drop_kind, i, 0);
+            }
         }
+    }
+    if missed_x {
+        g.score = 0;
+        g.combo = 0;
+        g.score_reset_ticks = 125;
     }
 }
 
@@ -655,7 +666,7 @@ pub fn new_game(best: i64) -> Game {
         drop_kind: empty_slots(), drop_x: empty_slots(), drop_y: empty_slots(),
         broken: 0, blast_ticks: 0, mla_ticks: 0, expand_ticks: 0, slow_ticks: 0, catch_ticks: 0, scatter_ticks: 0, hole_ticks: 0, fast_ticks: 0, xtc_rate: 10, lsd_doses: 0, xtc_doses: 0, chaos_kick_ticks: 0, chaos_seed: 113, xtc_ticks: 0, xtc_phase: 0, lsd_rate: 10, drop_seed: 97, glow_phase: 0, glow_direction: 1, glow_turn_ticks: 0, glow_seed: 101, lsd_ticks: 0, lsd_seed: 97, lsd_step_ticks: 0, lsd_control_ticks: 0, lsd_mistake_ticks: 0, lsd_mistake: 0, brick_shift_x: 0, brick_shift_y: 0, brick_drift_x: 1, brick_drift_y: 1, direction_seed: 73, side_shot: false, vertical_ticks: 0, vertical_direction: 1, angle_ticks: 0, angle_direction: 1, paddle: 26000, velocity: 0,
         ball_x: 30000, ball_y: 13500, ball_vx: 13000, ball_vy: -9500,
-        score: 0, best: best, lives: 3, level: 1, remaining: 60, combo: 0,
+        score_reset_ticks: 0, score: 0, best: best, lives: 3, level: 1, remaining: 60, combo: 0,
         ready: true, paused: false, over: false,
         flash_x: -1, flash_y: -1, flash_ticks: 0
     };
@@ -703,6 +714,7 @@ pub fn step_paddle(g: &mut Game, direction: i64) -> void {
 
 pub fn tick(g: &mut Game, direction: i64) -> void {
     if g.paused || g.over { return; }
+    if g.score_reset_ticks > 0 { g.score_reset_ticks -= 1; }
     for i in 0..60 {
         let left: i64 = brick_left(g, i);
         let top: i64 = brick_top(g, i);

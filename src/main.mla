@@ -228,7 +228,8 @@ fn capsule_letter(kind: i64) -> str8 {
     if kind == 10 { return "F"; }
     if kind == 11 { return "LSD"; }
     if kind == 12 { return "V"; }
-    return "XTC";
+    if kind == 13 { return "XTC"; }
+    return "X";
 }
 
 fn capsule_color(kind: i64) -> i32 {
@@ -305,8 +306,8 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8, paddle_
     for i in 0..g.lives { builder_append(frame, "♥ "); }
     builder_append(frame, reset());
     builder_append(frame, clear_eol());
-    builder_append(frame, "\r\n + ");
-    for kind in 1..14 {
+    builder_append(frame, "\r\n ");
+    for kind in 1..15 {
         builder_append(frame, fg(capsule_color(kind)));
         builder_append(frame, kind == 13 && g.xtc_ticks > 0 && g.lsd_ticks == 0 ? "XTCx2" : capsule_letter(kind));
         if kind == 5 { builder_append(frame, " full"); }
@@ -431,6 +432,10 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8, paddle_
     builder_append(frame, fg(color_bright_yellow()));
     if g.over { builder_append(frame, "GAME OVER / R restart / N new pilot / T scores"); }
     else if g.paused { builder_append(frame, "PAUSED / P"); }
+    else if g.score_reset_ticks > 0 {
+        builder_append(frame, fg(color_bright_red()));
+        builder_append(frame, "X MISSED = 0");
+    }
     else if g.ready && g.blast_ticks > 0 { builder_append(frame, "NUKE! WAVE CLEARED / SPACE to launch"); }
     else if g.ready {
         builder_append(frame, g.catch_ticks > 0 ? "CAUGHT / SPACE" : "READY / SPACE");
