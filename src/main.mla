@@ -6,6 +6,7 @@ mod std::io;
 mod std::strbuf;
 mod std::term;
 mod std::time;
+mod std::env::detail;
 
 use game::*;
 use highscores::*;
@@ -31,6 +32,8 @@ use std::strbuf::len;
 use std::term::*;
 use std::time::now_ms;
 use std::time::sleep_ms;
+use std::env::detail::__env_args;
+use std::strbuf::eq;
 
 fn append_number(frame: StringBuilder, n: i64) -> void {
     let s: str8 = format!("{}", n);
@@ -141,7 +144,7 @@ fn render_logo(frame: StringBuilder, elapsed: i64) -> void {
     }
 }
 
-fn render_intro(frame: StringBuilder, elapsed: i64) -> void {
+fn render_intro(frame: StringBuilder, elapsed: i64, paddle_brackets: bool) -> void {
     builder_clear(frame);
     builder_append(frame, reset());
     intro_line(frame, 2, 2, "╔════════════════════════════════════════════════════════════╗", color_bright_blue());
@@ -162,7 +165,7 @@ fn render_intro(frame: StringBuilder, elapsed: i64) -> void {
     let travel: i64 = (elapsed / 35) % 108;
     let ball_col: i64 = 5 + (travel < 54 ? travel : 108 - travel);
     intro_line(frame, 16, i32(ball_col), "●", color_bright_white());
-    intro_line(frame, 18, 27, "▐━━━━━━▌", color_bright_cyan());
+    intro_line(frame, 18, 27, paddle_brackets ? "▐━━━━━━▌" : "━━━━━━━━", color_bright_cyan());
     intro_line(frame, 21, 19, elapsed / 650 % 2 == 0 ? "[ PRESS SPACE OR ENTER ]" : "[                     ]", color_bright_yellow());
     intro_line(frame, 22, 13, "H/L or ←/→  ACCELERATE     P  PAUSE", color_bright_cyan());
     intro_line(frame, 23, 19, "T HIGH SCORES  /  Q QUIT", color_bright_black());
@@ -248,7 +251,7 @@ fn effect_timer(frame: StringBuilder, letter: str8, ticks: i64) -> void {
     }
 }
 
-fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8) -> void {
+fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8, paddle_brackets: bool) -> void {
     builder_clear(frame);
     builder_append(frame, cursor_code(cmd_home()));
     builder_append(frame, reset());
@@ -315,8 +318,8 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8) -> void
             } else if paddle_at(g, x, y) {
                 builder_append(frame, fg(color_bright_cyan()));
                 if paddle_angle(g) != 0 { builder_append(frame, paddle_glyph(g)); }
-                else if x == g.paddle / 1000 { builder_append(frame, "▐"); }
-                else if x == g.paddle / 1000 + paddle_width(g) / 1000 - 1 { builder_append(frame, "▌"); }
+                else if paddle_brackets && x == g.paddle / 1000 { builder_append(frame, "▐"); }
+                else if paddle_brackets && x == g.paddle / 1000 + paddle_width(g) / 1000 - 1 { builder_append(frame, "▌"); }
                 else { builder_append(frame, "━"); }
             } else if capsule >= 0 {
                 builder_append(frame, bg(capsule_background(g.drop_kind[capsule])));
@@ -400,6 +403,21 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8) -> void
 }
 
 fn main() -> i32 {
+    var paddle_brackets: bool = false;
+    let arguments: list<str8> = __env_args();
+    let argument_count: i64 = arguments.len();
+    for i in 1..argument_count {
+        if eq(arguments[i], "--paddle-brackets") == 1 { paddle_brackets = true; }
+        else if eq(arguments[i], "--help") == 1 || eq(arguments[i], "-h") == 1 {
+            println!("Usage: mlarkanoid [--paddle-brackets]");
+            println!("  --paddle-brackets  Show decorative paddle end caps (off by default).");
+            println!("  -h, --help         Show this help.");
+            return 0;
+        } else {
+            println!("Unknown option: {}. Use --help for usage.", arguments[i]);
+            return 2;
+        }
+    }
     if stdin_is_tty() != 1 || stdout_is_tty() != 1 || supports_ansi() != 1 {
         println!("Run ./run.sh in an ANSI terminal (at least 64 columns x 24 rows).");
         return 1;
@@ -573,8 +591,8 @@ fn main() -> i32 {
         if now >= next_frame {
             if showing_scores && !small { render_highscores(&scores, frame, save_failed, g.over); }
             else if naming && !small { render_name(frame, name_editor); }
-            else if welcome && !small { render_intro(frame, now - intro_started); }
-            else { render(&g, frame, small, player); }
+            else if welcome && !small { render_intro(frame, now - intro_started, paddle_brackets); }
+            else { render(&g, frame, small, player, paddle_brackets); }
             next_frame = now + 16;
         }
         sleep_ms(2);

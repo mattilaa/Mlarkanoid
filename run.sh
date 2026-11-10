@@ -10,4 +10,4 @@ cleanup_terminal() {
 trap cleanup_terminal EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-env -u NO_COLOR MLANG_FORCE_ANSI=1 "${ROOT_DIR}/build/mlarkanoid"
+env -u NO_COLOR MLANG_FORCE_ANSI=1 "${ROOT_DIR}/build/mlarkanoid" "$@"

@@ -55,7 +55,8 @@ def check_session(command, quit_key, intro_only=False):
 
     def paddle_column(output):
         lines = ANSI.sub(b"", output).decode(errors="replace").splitlines()
-        paddles = [line.index("▐") for line in lines if "▐" in line]
+        paddles = [re.search(r"▐━+▌|━{8,}", line) for line in lines if line.startswith(" ║")]
+        paddles = [match.start() for match in paddles if match]
         assert paddles, "Paddle was not rendered"
         return paddles[-1]
 
@@ -91,6 +92,14 @@ def check_session(command, quit_key, intro_only=False):
         os.write(master, b"tesx\x7ft\r")
         initial = expect(b"READY")
         assert b"9999" in initial
+        plain_initial = ANSI.sub(b"", initial).decode(errors="replace")
+        board_rows = [line for line in plain_initial.splitlines() if line.startswith(" ║")]
+        paddle_rows = [line for line in board_rows if "━━━━━━" in line]
+        assert paddle_rows
+        if "--paddle-brackets" in command:
+            assert "▐━━━━━━▌" in paddle_rows[-1]
+        else:
+            assert "━━━━━━━━" in paddle_rows[-1] and "▐" not in paddle_rows[-1] and "▌" not in paddle_rows[-1]
         assert b"PRISM WALL" in initial and b"CATCH:" in initial
         assert b"MLA full" in initial and b"NUKE blast" in initial
         # The first brick row has several colors, rather than one row gradient.
@@ -175,7 +184,12 @@ def check_session(command, quit_key, intro_only=False):
 
 
 if __name__ == "__main__":
+    binary = str(ROOT / "build/mlarkanoid")
+    help_result = subprocess.run([binary, "--help"], capture_output=True, text=True)
+    assert help_result.returncode == 0 and "--paddle-brackets" in help_result.stdout
+    invalid_result = subprocess.run([binary, "--invalid-option"], capture_output=True, text=True)
+    assert invalid_result.returncode == 2 and "Unknown option" in invalid_result.stdout
     check_session([str(ROOT / "build/mlarkanoid")], b"q")
-    check_session([str(ROOT / "run.sh")], b"\x03")
+    check_session([str(ROOT / "run.sh"), "--paddle-brackets"], b"\x03")
     check_session([str(ROOT / "build/mlarkanoid")], b"q", intro_only=True)
     print("PASS: welcome, name entry/editing, Hall of Fame, persistent scores across restart, detailed bricks, gameplay, cleanup")

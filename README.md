@@ -14,6 +14,16 @@ name, then press **Enter** to play. **Space** launches your first ball.
 ./run.sh
 ```
 
+The paddle has a plain line by default. To show decorative end caps:
+
+```sh
+./run.sh --paddle-brackets
+# Or after building: ./build/mlarkanoid --paddle-brackets
+```
+
+This applies to the welcome-screen paddle and horizontal paddles of all sizes;
+tilted paddles keep their diagonal glyphs. `./build/mlarkanoid --help` lists options.
+
 Requires an installed MLang compiler/runtime and the `../mlang/stdlib` sources.
 Built and tested with **MLang 0.4.4.12**, from the 0.4.4 release series. The sibling
 checkout's older `build/mlang` is not required. Use a UTF-8 ANSI terminal with
