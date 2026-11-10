@@ -80,7 +80,9 @@ cracked plates (`╭░╱╮`) after damage.
 
 Every third destroyed brick drops a colored letter capsule. Catch it with the
 paddle for 100 points and its effect; missed capsules fall out of the arena.
-The six capsule types cycle in order, including larger **[MLA]** and **[NUKE]** capsules.
+The six capsule types cycle in order, including larger **MLA** and **NUKE** capsules.
+They appear as solid dark colored tiles with white letters and padded edges,
+without brackets: blue E, amber S, green C, purple P, teal MLA, and red NUKE.
 
 | Capsule | Effect |
 | --- | --- |

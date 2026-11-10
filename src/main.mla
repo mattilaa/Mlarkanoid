@@ -228,6 +228,15 @@ fn capsule_color(kind: i64) -> i32 {
     return kind == 5 ? color_bright_white() : color_bright_red();
 }
 
+fn capsule_background(kind: i64) -> i32 {
+    if kind == 1 { return color_blue(); }
+    if kind == 2 { return color_yellow(); }
+    if kind == 3 { return color_green(); }
+    if kind == 4 { return color_magenta(); }
+    if kind == 5 { return color_cyan(); }
+    return color_red();
+}
+
 fn effect_timer(frame: StringBuilder, letter: str8, ticks: i64) -> void {
     if ticks > 0 {
         builder_append(frame, "  ");
@@ -306,26 +315,28 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8) -> void
                 else if x == g.paddle / 1000 + paddle_width(g) / 1000 - 1 { builder_append(frame, "▌"); }
                 else { builder_append(frame, "━"); }
             } else if capsule >= 0 {
-                builder_append(frame, fg(capsule_color(g.drop_kind[capsule])));
+                builder_append(frame, bg(capsule_background(g.drop_kind[capsule])));
+                builder_append(frame, fg(color_bright_white()));
                 let offset: i64 = x - g.drop_x[capsule] / 1000;
                 if g.drop_kind[capsule] == 6 {
-                    if offset == -2 { builder_append(frame, "["); }
+                    if offset == -2 { builder_append(frame, " "); }
                     if offset == -1 { builder_append(frame, "N"); }
                     if offset == 0 { builder_append(frame, "U"); }
                     if offset == 1 { builder_append(frame, "K"); }
                     if offset == 2 { builder_append(frame, "E"); }
-                    if offset == 3 { builder_append(frame, "]"); }
+                    if offset == 3 { builder_append(frame, " "); }
                 } else if g.drop_kind[capsule] == 5 {
-                    if offset == -2 { builder_append(frame, "["); }
+                    if offset == -2 { builder_append(frame, " "); }
                     if offset == -1 { builder_append(frame, "M"); }
                     if offset == 0 { builder_append(frame, "L"); }
                     if offset == 1 { builder_append(frame, "A"); }
-                    if offset == 2 { builder_append(frame, "]"); }
+                    if offset == 2 { builder_append(frame, " "); }
                 } else {
-                    if offset < 0 { builder_append(frame, "["); }
-                    else if offset > 0 { builder_append(frame, "]"); }
+                    if offset < 0 { builder_append(frame, " "); }
+                    else if offset > 0 { builder_append(frame, " "); }
                     else { builder_append(frame, capsule_letter(g.drop_kind[capsule])); }
                 }
+                builder_append(frame, bg(color_default()));
             } else if g.blast_ticks > 0 && magnitude(magnitude(x - 30) + magnitude(y - 8) * 2 - (100 - g.blast_ticks) / 2) < 2 {
                 builder_append(frame, fg(color_bright_yellow()));
                 builder_append(frame, "✦");
