@@ -90,9 +90,9 @@ cracked plates (`╭░╱╮`) after damage.
 
 Every third destroyed brick drops a colored letter capsule. Catch it with the
 paddle for 100 points and its effect; missed capsules fall out of the arena.
-The seven capsule types cycle in order, including larger **MLA** and **NUKE** capsules.
+The ten capsule types cycle in order, including larger **MLA** and **NUKE** capsules.
 They appear as solid dark colored tiles with white letters and padded edges,
-without brackets: blue E, amber S, green C, purple P, teal MLA, red NUKE, and blue A.
+without brackets: blue E, amber S, green C, purple P, teal MLA, red NUKE, blue A, purple D, red H, and amber F.
 
 | Capsule | Effect |
 | --- | --- |
@@ -103,6 +103,9 @@ without brackets: blue E, amber S, green C, purple P, teal MLA, red NUKE, and bl
 | **MLA** | Cover the entire 60-cell arena with the paddle for 10 seconds |
 | **NUKE** | Blast all remaining bricks and advance to the next wave |
 | **A** | Tilt the paddle into a 45° ramp for 12 seconds; h leans left, l right |
+| **D** | Paddle hits choose straight up, either diagonal, or either side for 12 seconds |
+| **H** | Open a real center gap in the paddle for 12 seconds |
+| **F** | Move the ball at 2× speed for 10 seconds |
 
 Effects can coexist. Collecting the same capsule refreshes its timer. The status
 bar shows remaining seconds; pause freezes capsules and timers. A lost life or
@@ -116,6 +119,13 @@ up-right at 45°, keeping its speed; terminal cells are treated as twice as tall
 as they are wide. Catch still holds the ball above the ramp until Space releases
 it. Expanded paddles also tilt; MLA stays flat and suppresses the lean until its
 full-width effect expires. Losing a life or clearing a wave resets the tilt.
+
+D side shots travel horizontally until their first wall bounce, then turn
+upward to keep the ball in play. D takes priority over A's fixed-angle rebound.
+H removes the middle two paddle cells (four with Expand or MLA): balls and
+capsules fall through the visible gap. Caught balls rest on a solid segment.
+F refreshes rather than stacking; combined with S, the ball moves at 1.3× normal
+speed. Timers, gap collisions, and speed changes also work with tilted paddles.
 
 ## Build and test
 

@@ -217,7 +217,10 @@ fn capsule_letter(kind: i64) -> str8 {
     if kind == 4 { return "P"; }
     if kind == 5 { return "MLA"; }
     if kind == 6 { return "NUKE"; }
-    return "A";
+    if kind == 7 { return "A"; }
+    if kind == 8 { return "D"; }
+    if kind == 9 { return "H"; }
+    return "F";
 }
 
 fn capsule_color(kind: i64) -> i32 {
@@ -226,6 +229,9 @@ fn capsule_color(kind: i64) -> i32 {
     if kind == 3 { return color_bright_green(); }
     if kind == 4 { return color_bright_magenta(); }
     if kind == 7 { return color_bright_blue(); }
+    if kind == 8 { return color_bright_magenta(); }
+    if kind == 9 { return color_bright_red(); }
+    if kind == 10 { return color_bright_yellow(); }
     return kind == 5 ? color_bright_white() : color_bright_red();
 }
 
@@ -235,12 +241,14 @@ fn capsule_background(kind: i64) -> i32 {
     if kind == 3 { return color_green(); }
     if kind == 4 { return color_magenta(); }
     if kind == 5 { return color_cyan(); }
+    if kind == 8 { return color_magenta(); }
+    if kind == 10 { return color_yellow(); }
     return kind == 7 ? color_blue() : color_red();
 }
 
 fn effect_timer(frame: StringBuilder, letter: str8, ticks: i64) -> void {
     if ticks > 0 {
-        builder_append(frame, "  ");
+        builder_append(frame, " ");
         builder_append(frame, letter);
         builder_append(frame, ":");
         append_number(frame, (ticks + 124) / 125);
@@ -283,16 +291,15 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8, paddle_
     builder_append(frame, reset());
     builder_append(frame, clear_eol());
     builder_append(frame, "\r\n  CATCH: ");
-    for kind in 1..8 {
+    for kind in 1..11 {
         builder_append(frame, fg(capsule_color(kind)));
         builder_append(frame, capsule_letter(kind));
-        if kind == 1 { builder_append(frame, " wide "); }
-        if kind == 2 { builder_append(frame, " slow "); }
-        if kind == 3 { builder_append(frame, " catch "); }
-        if kind == 4 { builder_append(frame, " +1 "); }
-        if kind == 5 { builder_append(frame, " full "); }
-        if kind == 6 { builder_append(frame, " blast "); }
-        if kind == 7 { builder_append(frame, " tilt"); }
+        if kind == 5 { builder_append(frame, " full"); }
+        if kind == 6 { builder_append(frame, " blast"); }
+        if kind == 8 { builder_append(frame, " aim"); }
+        if kind == 9 { builder_append(frame, " gap"); }
+        if kind == 10 { builder_append(frame, " 2x"); }
+        builder_append(frame, " ");
     }
     builder_append(frame, reset());
     builder_append(frame, clear_eol());
@@ -373,20 +380,23 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8, paddle_
     builder_append(frame, "\r\n  ");
     builder_append(frame, fg(color_bright_yellow()));
     if g.over { builder_append(frame, "GAME OVER / R restart / N new pilot / T scores"); }
-    else if g.paused { builder_append(frame, "PAUSED / P to resume"); }
+    else if g.paused { builder_append(frame, "PAUSED / P"); }
     else if g.ready && g.blast_ticks > 0 { builder_append(frame, "NUKE! WAVE CLEARED / SPACE to launch"); }
     else if g.ready {
-        builder_append(frame, g.catch_ticks > 0 ? "CAUGHT / SPACE to release" : "READY / SPACE to launch");
+        builder_append(frame, g.catch_ticks > 0 ? "CAUGHT / SPACE" : "READY / SPACE");
     }
     else {
         builder_append(frame, "COMBO x");
         append_number(frame, clamp(g.combo, 1, 8));
-        builder_append(frame, "    THRUST ");
-        for i in 0..8 {
-            builder_append(frame, magnitude(g.velocity) / 4500 > i ? "▰" : "▱");
+        builder_append(frame, "  V ");
+        for i in 0..4 {
+            builder_append(frame, magnitude(g.velocity) / 9000 > i ? "▰" : "▱");
         }
     }
     effect_timer(frame, paddle_angle(g) < 0 ? "A╱" : "A╲", g.angle_ticks);
+    effect_timer(frame, "D", g.scatter_ticks);
+    effect_timer(frame, "H", g.hole_ticks);
+    effect_timer(frame, "F2x", g.fast_ticks);
     effect_timer(frame, "MLA", g.mla_ticks);
     effect_timer(frame, "E", g.expand_ticks);
     effect_timer(frame, "S", g.slow_ticks);

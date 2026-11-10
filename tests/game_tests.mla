@@ -567,3 +567,218 @@ fn test_ramp_half_blocks_join_and_follow_the_physical_surface() {
         verify(paddle_at(&g, x, surface / 1000));
     }
 }
+
+#[test]
+fn test_new_capsules_drop_in_sequence_and_keep_small_tiles() {
+    for kind in 8..11 {
+        var g: Game = new_game(0);
+        g.broken = kind * 3 - 1;
+        g.ready = false;
+        g.ball_x = 1500;
+        g.ball_y = 7020;
+        g.ball_vx = 0;
+        g.ball_vy = -10000;
+        tick(&mut g, 0);
+        verify(g.drop_kind[0] == kind);
+        verify(capsule_at(&g, 1, 6) == 0 && capsule_at(&g, 3, 6) == 0);
+        verify(capsule_at(&g, 0, 6) == -1 && capsule_at(&g, 4, 6) == -1);
+    }
+}
+
+#[test]
+fn test_direction_shots_cover_straight_diagonal_and_sides_at_same_speed() {
+    for seed in 1..6 {
+        var g: Game = new_game(0);
+        g.direction_seed = seed;
+        g.ball_vx = 0;
+        g.ball_vy = 10000;
+        scatter_rebound(&mut g);
+        if seed == 1 { verify(g.ball_vx < 0 && g.ball_vy < 0 && !g.side_shot); }
+        if seed == 2 { verify(g.ball_vx > 0 && g.ball_vy < 0 && !g.side_shot); }
+        if seed == 3 { verify(g.ball_vx < 0 && g.ball_vy == 0 && g.side_shot); }
+        if seed == 4 { verify(g.ball_vx > 0 && g.ball_vy == 0 && g.side_shot); }
+        if seed == 5 { verify(g.ball_vx == 0 && g.ball_vy == -10000 && !g.side_shot); }
+        let squared: i64 = (g.ball_vx / 2) * (g.ball_vx / 2) + g.ball_vy * g.ball_vy;
+        verify(magnitude(squared - 100000000) < 30000);
+    }
+}
+
+#[test]
+fn test_direction_shots_override_fixed_tilt_on_real_paddle_contact() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 7);
+    collect_capsule(&mut g, 8);
+    g.direction_seed = 5;
+    g.ready = false;
+    g.ball_x = 30000;
+    g.ball_y = 11990;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ball_vx == 0 && g.ball_vy == -10000);
+    verify(g.scatter_ticks > 0 && g.ball_y < paddle_surface(&g, g.ball_x));
+}
+
+#[test]
+fn test_horizontal_shots_turn_up_at_either_wall_even_after_effect_expiry() {
+    for side in 0..2 {
+        var g: Game = new_game(0);
+        g.ready = false;
+        g.ball_x = side == 0 ? 10 : 59990;
+        g.ball_y = 10000;
+        g.ball_vx = side == 0 ? -20000 : 20000;
+        g.ball_vy = 0;
+        g.side_shot = true;
+        tick(&mut g, 0);
+        verify(g.ball_vy < 0 && !g.side_shot);
+        verify(side == 0 ? g.ball_vx > 0 : g.ball_vx < 0);
+        verify(g.ball_x >= 0 && g.ball_x < 60000);
+    }
+}
+
+#[test]
+fn test_hole_is_visible_and_ball_falls_through_the_middle() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 9);
+    verify(paddle_at(&g, 28, 14) && !paddle_at(&g, 29, 14));
+    verify(!paddle_at(&g, 30, 14) && paddle_at(&g, 31, 14));
+    g.ready = false;
+    g.ball_x = 30000;
+    g.ball_y = 13990;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ball_vy > 0 && g.ball_y > 14000);
+    for i in 0..30 { tick(&mut g, 0); }
+    verify(g.lives == 2 && g.hole_ticks == 0);
+}
+
+#[test]
+fn test_solid_paddle_segments_still_bounce_and_collect_capsules() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 9);
+    spawn_capsule(&mut g, 4, 30000, 13990);
+    spawn_capsule(&mut g, 4, 28000, 13990);
+    g.ready = false;
+    g.ball_x = 28000;
+    g.ball_y = 13990;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.drop_kind[0] == 4 && g.drop_y[0] > 14000);
+    verify(g.drop_kind[1] == 0 && g.lives == 4);
+    verify(g.ball_vy < 0);
+}
+
+#[test]
+fn test_hole_follows_tilt_expand_and_full_width_paddle() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 1);
+    collect_capsule(&mut g, 7);
+    collect_capsule(&mut g, 9);
+    verify(paddle_hole(&g, 28000) && paddle_hole(&g, 31999));
+    verify(!paddle_hole(&g, 27999) && !paddle_hole(&g, 32000));
+    verify(!paddle_at(&g, 30, paddle_surface(&g, 30500) / 1000));
+    g.ready = false;
+    g.ball_x = 30000;
+    let hit_surface: i64 = paddle_surface(&g, 30000);
+    g.ball_y = hit_surface - 10;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ball_vy > 0);
+    collect_capsule(&mut g, 5);
+    verify(!paddle_at(&g, 30, 14) && paddle_at(&g, 20, 14));
+}
+
+#[test]
+fn test_held_ball_rests_on_solid_segment_and_hole_expiry_recenters_it() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 9);
+    tick(&mut g, 0);
+    verify(g.ball_x == 28000 && !paddle_hole(&g, g.ball_x));
+    g.hole_ticks = 1;
+    tick(&mut g, 0);
+    verify(g.ball_x == 30000 && paddle_at(&g, 30, 14));
+}
+
+#[test]
+fn test_fast_is_exactly_two_times_and_refreshes_without_stacking() {
+    var g: Game = new_game(0);
+    g.ready = false;
+    g.ball_x = 30000;
+    g.ball_y = 10000;
+    g.ball_vx = 10000;
+    g.ball_vy = 10000;
+    collect_capsule(&mut g, 10);
+    tick(&mut g, 0);
+    verify(g.ball_x == 30160 && g.ball_y == 10160);
+    collect_capsule(&mut g, 10);
+    tick(&mut g, 0);
+    verify(g.ball_x == 30320 && g.ball_y == 10320);
+    verify(g.ball_vx == 10000 && g.ball_vy == 10000);
+    g.fast_ticks = 1;
+    tick(&mut g, 0);
+    verify(g.ball_x == 30400 && g.ball_y == 10400);
+}
+
+#[test]
+fn test_fast_combines_with_slow_and_restores_normal_speed() {
+    var g: Game = new_game(0);
+    g.ready = false;
+    g.ball_x = 30000;
+    g.ball_y = 10000;
+    g.ball_vx = 10000;
+    g.ball_vy = 10000;
+    collect_capsule(&mut g, 2);
+    collect_capsule(&mut g, 10);
+    tick(&mut g, 0);
+    verify(g.ball_x == 30104 && g.ball_y == 10104);
+    g.fast_ticks = 1;
+    tick(&mut g, 0);
+    verify(g.ball_x == 30156 && g.ball_y == 10156);
+    g.slow_ticks = 1;
+    tick(&mut g, 0);
+    verify(g.ball_x == 30236 && g.ball_y == 10236);
+}
+
+#[test]
+fn test_fast_still_hits_bricks_and_tilted_paddles() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 10);
+    g.ready = false;
+    g.ball_x = 1500;
+    g.ball_y = 7020;
+    g.ball_vx = 0;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.bricks[48] == 0 && g.ball_vy > 0);
+    collect_capsule(&mut g, 7);
+    g.ball_x = 30000;
+    g.ball_y = 11990;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ball_vy < 0 && magnitude(g.ball_vx) == -g.ball_vy * 2);
+}
+
+#[test]
+fn test_new_effect_timers_freeze_refresh_and_clear_with_wave() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 8);
+    collect_capsule(&mut g, 9);
+    collect_capsule(&mut g, 10);
+    g.paused = true;
+    tick(&mut g, 1);
+    verify(g.scatter_ticks == 1500 && g.hole_ticks == 1500 && g.fast_ticks == 1250);
+    g.paused = false;
+    tick(&mut g, 0);
+    verify(g.scatter_ticks == 1499 && g.hole_ticks == 1499 && g.fast_ticks == 1249);
+    collect_capsule(&mut g, 8);
+    collect_capsule(&mut g, 9);
+    collect_capsule(&mut g, 10);
+    verify(g.scatter_ticks == 1500 && g.hole_ticks == 1500 && g.fast_ticks == 1250);
+    g.side_shot = true;
+    fill_wave(&mut g);
+    verify(g.scatter_ticks == 0 && g.hole_ticks == 0 && g.fast_ticks == 0 && !g.side_shot);
+}

@@ -11,6 +11,11 @@ pub struct Game {
     var expand_ticks: i64;
     var slow_ticks: i64;
     var catch_ticks: i64;
+    var scatter_ticks: i64;
+    var hole_ticks: i64;
+    var fast_ticks: i64;
+    var direction_seed: i64;
+    var side_shot: bool;
     var angle_ticks: i64;
     var angle_direction: i64;
     var paddle: i64;
@@ -43,7 +48,7 @@ pub fn clamp(n: i64, low: i64, high: i64) -> i64 {
     return n < low ? low : (n > high ? high : n);
 }
 
-// Capsule kinds: 1 = E, 2 = S, 3 = C, 4 = P, 5 = MLA, 6 = NUKE, 7 = A.
+// Capsule kinds: 1 E, 2 S, 3 C, 4 P, 5 MLA, 6 NUKE, 7 A, 8 D, 9 H, 10 F.
 fn empty_slots() -> list<i64> {
     var slots: list<i64> = [];
     for i in 0..8 { slots.push(0); }
@@ -72,8 +77,24 @@ pub fn paddle_surface(g: &Game, x: i64) -> i64 {
     return surface_at(g.paddle, paddle_width(g), paddle_angle(g), x);
 }
 
+fn hole_at(left: i64, width: i64, x: i64) -> bool {
+    let center: i64 = left + width / 2;
+    let half_gap: i64 = width >= 12000 ? 2000 : 1000;
+    return x >= center - half_gap && x < center + half_gap;
+}
+
+pub fn paddle_hole(g: &Game, x: i64) -> bool {
+    return g.hole_ticks > 0 && hole_at(g.paddle, paddle_width(g), x);
+}
+
+pub fn paddle_rest_x(g: &Game) -> i64 {
+    // A held ball sits on a solid segment, never over the center gap.
+    return g.paddle + paddle_width(g) / (g.hole_ticks > 0 ? 4 : 2);
+}
+
 pub fn paddle_at(g: &Game, x: i64, y: i64) -> bool {
     if x < g.paddle / 1000 || x >= g.paddle / 1000 + paddle_width(g) / 1000 { return false; }
+    if paddle_hole(g, x * 1000 + 500) { return false; }
     return y == paddle_surface(g, x * 1000 + 500) / 1000;
 }
 
@@ -85,10 +106,7 @@ pub fn paddle_glyph(g: &Game, x: i64) -> str8 {
     return surface % 1000 < 500 ? "▀" : "▄";
 }
 
-fn diagonal_speed(vx: i64, vy: i64) -> i64 {
-    // Preserve speed when steering onto a 45-degree rebound, accounting for
-    // the 2:1 terminal cell aspect ratio. Integer square root avoids floats.
-    let squared: i64 = ((vx / 2) * (vx / 2) + vy * vy) / 2;
+fn integer_sqrt(squared: i64) -> i64 {
     var low: i64 = 0;
     var high: i64 = 100000;
     while low + 1 < high {
@@ -98,11 +116,33 @@ fn diagonal_speed(vx: i64, vy: i64) -> i64 {
     return low < 1000 ? 1000 : low;
 }
 
+fn diagonal_speed(vx: i64, vy: i64) -> i64 {
+    // Account for the 2:1 terminal cell aspect ratio when conserving speed.
+    return integer_sqrt(((vx / 2) * (vx / 2) + vy * vy) / 2);
+}
+
+pub fn scatter_rebound(g: &mut Game) -> void {
+    let speed: i64 = integer_sqrt((g.ball_vx / 2) * (g.ball_vx / 2) + g.ball_vy * g.ball_vy);
+    let diagonal: i64 = diagonal_speed(g.ball_vx, g.ball_vy);
+    g.direction_seed = g.direction_seed * 48271 % 2147483647;
+    let shot: i64 = g.direction_seed % 5;
+    g.side_shot = false;
+    if shot == 0 { g.ball_vx = 0; g.ball_vy = -speed; }
+    if shot == 1 { g.ball_vx = -diagonal * 2; g.ball_vy = -diagonal; }
+    if shot == 2 { g.ball_vx = diagonal * 2; g.ball_vy = -diagonal; }
+    if shot == 3 { g.ball_vx = -speed * 2; g.ball_vy = 0; g.side_shot = true; }
+    if shot == 4 { g.ball_vx = speed * 2; g.ball_vy = 0; g.side_shot = true; }
+}
+
 pub fn clear_powerups(g: &mut Game) -> void {
     g.mla_ticks = 0;
     g.expand_ticks = 0;
     g.slow_ticks = 0;
     g.catch_ticks = 0;
+    g.scatter_ticks = 0;
+    g.hole_ticks = 0;
+    g.fast_ticks = 0;
+    g.side_shot = false;
     g.angle_ticks = 0;
     g.angle_direction = 1;
     g.paddle = clamp(g.paddle, 0, 52000);
@@ -143,6 +183,12 @@ pub fn collect_capsule(g: &mut Game, kind: i64) -> void {
         g.angle_ticks = 1500;
         g.angle_direction = g.velocity < 0 ? -1 : 1;
     }
+    if kind == 8 {
+        g.scatter_ticks = 1500;
+        g.direction_seed = (g.score * 31 + g.broken * 17 + g.paddle) % 2147483646 + 1;
+    }
+    if kind == 9 { g.hole_ticks = 1500; }
+    if kind == 10 { g.fast_ticks = 1250; }
     g.score += 100;
     if g.score > g.best { g.best = g.score; }
 }
@@ -156,7 +202,8 @@ pub fn tick_capsules(g: &mut Game) -> void {
             let surface: i64 = paddle_surface(g, g.drop_x[i]);
             if old_y < surface && y >= surface &&
                g.drop_x[i] >= g.paddle - 500 &&
-               g.drop_x[i] <= g.paddle + paddle_width(g) + 500 {
+               g.drop_x[i] <= g.paddle + paddle_width(g) + 500 &&
+               !paddle_hole(g, g.drop_x[i]) {
                 let kind: i64 = g.drop_kind[i];
                 set_brick(&mut g.drop_kind, i, 0);
                 collect_capsule(&mut g, kind);
@@ -248,7 +295,7 @@ pub fn new_game(best: i64) -> Game {
     return Game {
         bricks: bricks,
         drop_kind: empty_slots(), drop_x: empty_slots(), drop_y: empty_slots(),
-        broken: 0, blast_ticks: 0, mla_ticks: 0, expand_ticks: 0, slow_ticks: 0, catch_ticks: 0, angle_ticks: 0, angle_direction: 1, paddle: 26000, velocity: 0,
+        broken: 0, blast_ticks: 0, mla_ticks: 0, expand_ticks: 0, slow_ticks: 0, catch_ticks: 0, scatter_ticks: 0, hole_ticks: 0, fast_ticks: 0, direction_seed: 73, side_shot: false, angle_ticks: 0, angle_direction: 1, paddle: 26000, velocity: 0,
         ball_x: 30000, ball_y: 13500, ball_vx: 13000, ball_vy: -9500,
         score: 0, best: best, lives: 3, level: 1, remaining: 60, combo: 0,
         ready: true, paused: false, over: false,
@@ -281,6 +328,9 @@ pub fn tick(g: &mut Game, direction: i64) -> void {
     let old_paddle: i64 = g.paddle;
     let old_width: i64 = paddle_width(g);
     let old_angle: i64 = paddle_angle(g);
+    if g.scatter_ticks > 0 { g.scatter_ticks -= 1; }
+    if g.hole_ticks > 0 { g.hole_ticks -= 1; }
+    if g.fast_ticks > 0 { g.fast_ticks -= 1; }
     if g.angle_ticks > 0 { g.angle_ticks -= 1; }
     if g.mla_ticks > 0 {
         g.mla_ticks -= 1;
@@ -298,19 +348,27 @@ pub fn tick(g: &mut Game, direction: i64) -> void {
     if g.remaining == 0 { advance_wave(&mut g); return; }
     if g.flash_ticks > 0 { g.flash_ticks -= 1; }
     if g.ready {
-        g.ball_x = g.paddle + paddle_width(g) / 2;
+        g.ball_x = paddle_rest_x(g);
         g.ball_y = paddle_surface(g, g.ball_x) - 500;
         return;
     }
     let old_x: i64 = g.ball_x;
     let old_y: i64 = g.ball_y;
-    let speed_percent: i64 = g.slow_ticks > 0 ? 65 : 100;
+    let speed_percent: i64 = (g.slow_ticks > 0 ? 65 : 100) * (g.fast_ticks > 0 ? 2 : 1);
     g.ball_x += g.ball_vx * 8 * speed_percent / 100000;
     g.ball_y += g.ball_vy * 8 * speed_percent / 100000;
-    if g.ball_x < 0 { g.ball_x = -g.ball_x; g.ball_vx = magnitude(g.ball_vx); }
+    var side_wall_hit: bool = false;
+    if g.ball_x < 0 { g.ball_x = -g.ball_x; g.ball_vx = magnitude(g.ball_vx); side_wall_hit = true; }
     if g.ball_x >= 60000 {
         g.ball_x = 119998 - g.ball_x;
         g.ball_vx = -magnitude(g.ball_vx);
+        side_wall_hit = true;
+    }
+    if g.side_shot && side_wall_hit {
+        let speed: i64 = diagonal_speed(g.ball_vx, 0);
+        g.ball_vx = g.ball_vx < 0 ? -speed * 2 : speed * 2;
+        g.ball_vy = -speed;
+        g.side_shot = false;
     }
     if g.ball_y < 0 { g.ball_y = -g.ball_y; g.ball_vy = magnitude(g.ball_vy); }
 
@@ -323,9 +381,14 @@ pub fn tick(g: &mut Game, direction: i64) -> void {
         let hit_x: i64 = old_x + (g.ball_x - old_x) * fraction / 1000000;
         let hit_left: i64 = old_paddle + (g.paddle - old_paddle) * fraction / 1000000;
         let hit_width: i64 = old_width + (paddle_width(g) - old_width) * fraction / 1000000;
-        if hit_x >= hit_left - 350 && hit_x <= hit_left + hit_width + 350 {
+        if hit_x >= hit_left - 350 && hit_x <= hit_left + hit_width + 350 &&
+           !(g.hole_ticks > 0 && hole_at(hit_left, hit_width, hit_x)) {
             let surface: i64 = paddle_surface(g, g.ball_x);
-            if paddle_angle(g) != 0 {
+            g.side_shot = false;
+            if g.scatter_ticks > 0 {
+                scatter_rebound(&mut g);
+                g.ball_y = surface - 100;
+            } else if paddle_angle(g) != 0 {
                 let speed: i64 = diagonal_speed(g.ball_vx, g.ball_vy);
                 g.ball_vx = paddle_angle(g) * speed * 2;
                 g.ball_vy = -speed;
@@ -340,7 +403,7 @@ pub fn tick(g: &mut Game, direction: i64) -> void {
             g.combo = 0;
             if g.catch_ticks > 0 {
                 g.ready = true;
-                g.ball_x = g.paddle + paddle_width(g) / 2;
+                g.ball_x = paddle_rest_x(g);
                 g.ball_y = paddle_surface(g, g.ball_x) - 500;
             }
         }
@@ -369,7 +432,7 @@ pub fn tick(g: &mut Game, direction: i64) -> void {
                     g.broken += 1;
                     // A predictable mix ensures every power-up appears during a wave.
                     if g.broken % 3 == 0 {
-                        spawn_capsule(&mut g, (g.broken / 3 - 1) % 7 + 1, left + 2000, top + 500);
+                        spawn_capsule(&mut g, (g.broken / 3 - 1) % 10 + 1, left + 2000, top + 500);
                     }
                     g.remaining -= 1;
                     g.combo += 1;
