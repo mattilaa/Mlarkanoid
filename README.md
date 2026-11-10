@@ -39,6 +39,34 @@ Clear a wave for 500 bonus points. Consecutive brick breaks between paddle
 hits multiply points up to ×8. `▓` bricks take two hits. Best score lasts until
 the process exits. Shrinking the terminal suspends play until it fits again.
 
+## Waves and colors
+
+Eight layouts cycle with increasing ball speed and armor: Prism Wall, Neon
+Windows, Fire Chevron, Ice Diamond, Checker Pop, Color Pillars, Fortress, and
+Space Invader. Each has its own color arrangement: rainbow mosaics, alternating
+neon colors, fiery patches, icy highlights, checker tiles, colored pillars,
+fortress accents, and a green/cyan invader with magenta antennae.
+
+## Falling capsules
+
+Every third destroyed brick drops a colored letter capsule. Catch it with the
+paddle for 100 points and its effect; missed capsules fall out of the arena.
+The six capsule types cycle in order, including larger **[MLA]** and **[NUKE]** capsules.
+
+| Capsule | Effect |
+| --- | --- |
+| **E** | Expand the paddle to 12 cells for 12 seconds |
+| **S** | Slow the ball to 65% speed for 10 seconds |
+| **C** | Catch the ball on the paddle for 12 seconds; Space releases it |
+| **P** | Add one life, up to five |
+| **MLA** | Cover the entire 60-cell arena with the paddle for 10 seconds |
+| **NUKE** | Blast all remaining bricks and advance to the next wave |
+
+Effects can coexist. Collecting the same capsule refreshes its timer. The status
+bar shows remaining seconds; pause freezes capsules and timers. A lost life or
+new wave clears capsules and temporary effects. When MLA expires, the paddle
+returns to the center at its normal size (or expanded size if E is still active).
+
 ## Build and test
 
 ```sh
@@ -47,6 +75,7 @@ the process exits. Shrinking the terminal suspends play until it fits again.
 python3 tests/terminal_smoke.py  # POSIX terminal/input/cleanup integration checks
 ```
 
+The build prefers `~/.local/bin/mlang` when installed, then `mlang` on PATH.
 Override toolchain locations if needed:
 
 ```sh

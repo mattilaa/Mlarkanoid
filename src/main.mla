@@ -37,6 +37,30 @@ fn row_color(row: i64) -> i32 {
     return color_bright_cyan();
 }
 
+fn brick_color(level: i64, index: i64) -> i32 {
+    let row: i64 = index / 12;
+    let col: i64 = index % 12;
+    let theme: i64 = (level - 1) % 8;
+    if theme == 0 { return row_color((col * 3 + row) % 5); }
+    if theme == 1 { return (col + row) % 2 == 0 ? color_bright_magenta() : color_bright_cyan(); }
+    if theme == 2 {
+        if col % 3 == 0 { return color_bright_red(); }
+        return (col + row) % 2 == 0 ? color_bright_yellow() : color_red();
+    }
+    if theme == 3 {
+        if col == 5 || col == 6 { return color_bright_white(); }
+        return (col + row) % 2 == 0 ? color_bright_cyan() : color_bright_blue();
+    }
+    if theme == 4 { return row_color((col / 2 + row * 2) % 5); }
+    if theme == 5 { return row_color(col / 3); }
+    if theme == 6 {
+        if col == 0 || col == 11 { return color_bright_yellow(); }
+        return col % 2 == 0 ? color_bright_red() : color_bright_white();
+    }
+    if row == 0 { return color_bright_magenta(); }
+    return col % 2 == 0 ? color_bright_green() : color_bright_cyan();
+}
+
 fn intro_line(frame: StringBuilder, row: i32, col: i32, text: str8, color: i32) -> void {
     builder_append(frame, cursor_pos(row, col));
     builder_append(frame, fg(color));
@@ -137,6 +161,32 @@ fn render_intro(frame: StringBuilder, elapsed: i64) -> void {
     write(stdout(), builder_borrow_string(frame));
 }
 
+fn capsule_letter(kind: i64) -> str8 {
+    if kind == 1 { return "E"; }
+    if kind == 2 { return "S"; }
+    if kind == 3 { return "C"; }
+    if kind == 4 { return "P"; }
+    if kind == 5 { return "MLA"; }
+    return "NUKE";
+}
+
+fn capsule_color(kind: i64) -> i32 {
+    if kind == 1 { return color_bright_cyan(); }
+    if kind == 2 { return color_bright_yellow(); }
+    if kind == 3 { return color_bright_green(); }
+    if kind == 4 { return color_bright_magenta(); }
+    return kind == 5 ? color_bright_white() : color_bright_red();
+}
+
+fn effect_timer(frame: StringBuilder, letter: str8, ticks: i64) -> void {
+    if ticks > 0 {
+        builder_append(frame, "  ");
+        builder_append(frame, letter);
+        builder_append(frame, ":");
+        append_number(frame, (ticks + 124) / 125);
+    }
+}
+
 fn render(g: &Game, frame: StringBuilder, too_small: bool) -> void {
     builder_clear(frame);
     builder_append(frame, cursor_code(cmd_home()));
@@ -153,7 +203,8 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool) -> void {
     builder_append(frame, fg(color_bright_cyan()));
     builder_append(frame, "  ▀▄ MLARKANOID ▄▀");
     builder_append(frame, fg(color_bright_black()));
-    builder_append(frame, "     MLANG / TERMINAL ARCADE");
+    builder_append(frame, "     ");
+    builder_append(frame, level_name(g.level));
     builder_append(frame, reset());
     builder_append(frame, clear_eol());
     builder_append(frame, "\r\n  SCORE ");
@@ -169,7 +220,18 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool) -> void {
     for i in 0..g.lives { builder_append(frame, "♥ "); }
     builder_append(frame, reset());
     builder_append(frame, clear_eol());
-    builder_append(frame, "\r\n");
+    builder_append(frame, "\r\n  CATCH: ");
+    for kind in 1..7 {
+        builder_append(frame, fg(capsule_color(kind)));
+        builder_append(frame, capsule_letter(kind));
+        if kind == 1 { builder_append(frame, " wide "); }
+        if kind == 2 { builder_append(frame, " slow "); }
+        if kind == 3 { builder_append(frame, " catch "); }
+        if kind == 4 { builder_append(frame, " life "); }
+        if kind == 5 { builder_append(frame, " full "); }
+        if kind == 6 { builder_append(frame, " blast"); }
+    }
+    builder_append(frame, reset());
     builder_append(frame, clear_eol());
     builder_append(frame, "\r\n ");
     builder_append(frame, fg(color_bright_blue()));
@@ -182,16 +244,41 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool) -> void {
         builder_append(frame, fg(color_bright_blue()));
         builder_append(frame, " ║");
         for x in 0..60 {
+            let capsule: i64 = capsule_at(g, x, y);
             if !g.over && x == g.ball_x / 1000 && y == g.ball_y / 1000 {
                 builder_append(frame, fg(color_bright_white()));
                 builder_append(frame, "●");
-            } else if y == 14 && x >= g.paddle / 1000 && x < g.paddle / 1000 + 8 {
+            } else if y == 14 && x >= g.paddle / 1000 && x < g.paddle / 1000 + paddle_width(g) / 1000 {
                 builder_append(frame, fg(color_bright_cyan()));
                 if x == g.paddle / 1000 { builder_append(frame, "▐"); }
-                else if x == g.paddle / 1000 + 7 { builder_append(frame, "▌"); }
+                else if x == g.paddle / 1000 + paddle_width(g) / 1000 - 1 { builder_append(frame, "▌"); }
                 else { builder_append(frame, "━"); }
+            } else if capsule >= 0 {
+                builder_append(frame, fg(capsule_color(g.drop_kind[capsule])));
+                let offset: i64 = x - g.drop_x[capsule] / 1000;
+                if g.drop_kind[capsule] == 6 {
+                    if offset == -2 { builder_append(frame, "["); }
+                    if offset == -1 { builder_append(frame, "N"); }
+                    if offset == 0 { builder_append(frame, "U"); }
+                    if offset == 1 { builder_append(frame, "K"); }
+                    if offset == 2 { builder_append(frame, "E"); }
+                    if offset == 3 { builder_append(frame, "]"); }
+                } else if g.drop_kind[capsule] == 5 {
+                    if offset == -2 { builder_append(frame, "["); }
+                    if offset == -1 { builder_append(frame, "M"); }
+                    if offset == 0 { builder_append(frame, "L"); }
+                    if offset == 1 { builder_append(frame, "A"); }
+                    if offset == 2 { builder_append(frame, "]"); }
+                } else {
+                    if offset < 0 { builder_append(frame, "["); }
+                    else if offset > 0 { builder_append(frame, "]"); }
+                    else { builder_append(frame, capsule_letter(g.drop_kind[capsule])); }
+                }
+            } else if g.blast_ticks > 0 && magnitude(magnitude(x - 30) + magnitude(y - 8) * 2 - (100 - g.blast_ticks) / 2) < 2 {
+                builder_append(frame, fg(color_bright_yellow()));
+                builder_append(frame, "✦");
             } else if y >= 2 && y < 7 && x % 5 < 4 && g.bricks[(y - 2) * 12 + x / 5] > 0 {
-                builder_append(frame, fg(row_color(y - 2)));
+                builder_append(frame, fg(brick_color(g.level, (y - 2) * 12 + x / 5)));
                 if g.bricks[(y - 2) * 12 + x / 5] > 1 { builder_append(frame, "▓"); }
                 else { builder_append(frame, "█"); }
             } else if g.flash_ticks > 0 && y == g.flash_y && magnitude(x - g.flash_x) < 3 {
@@ -218,7 +305,10 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool) -> void {
     builder_append(frame, fg(color_bright_yellow()));
     if g.over { builder_append(frame, "GAME OVER / R to restart"); }
     else if g.paused { builder_append(frame, "PAUSED / P to resume"); }
-    else if g.ready { builder_append(frame, "READY / SPACE to launch"); }
+    else if g.ready && g.blast_ticks > 0 { builder_append(frame, "NUKE! WAVE CLEARED / SPACE to launch"); }
+    else if g.ready {
+        builder_append(frame, g.catch_ticks > 0 ? "CAUGHT / SPACE to release" : "READY / SPACE to launch");
+    }
     else {
         builder_append(frame, "COMBO x");
         append_number(frame, clamp(g.combo, 1, 8));
@@ -227,6 +317,10 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool) -> void {
             builder_append(frame, magnitude(g.velocity) / 4500 > i ? "▰" : "▱");
         }
     }
+    effect_timer(frame, "MLA", g.mla_ticks);
+    effect_timer(frame, "E", g.expand_ticks);
+    effect_timer(frame, "S", g.slow_ticks);
+    effect_timer(frame, "C", g.catch_ticks);
     builder_append(frame, reset());
     builder_append(frame, clear_eol());
     builder_append(frame, "\r\n  H/L or ←/→ move  SPACE launch  P pause  R restart  Q quit");

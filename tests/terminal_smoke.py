@@ -78,6 +78,11 @@ def check_session(command, quit_key, intro_only=False):
             return
         os.write(master, b"\r" if quit_key == b"q" else b" ")
         initial = expect(b"READY")
+        assert b"PRISM WALL" in initial and b"CATCH:" in initial
+        assert b"MLA full" in initial and b"NUKE blast" in initial
+        # The first brick row has several colors, rather than one row gradient.
+        first_row = initial.split(b"\r\n")[6]
+        assert len(set(re.findall(rb"\x1b\[(9[1-7])m", first_row))) >= 3
         start_column = paddle_column(initial)
         moved = b""
         for _ in range(8):

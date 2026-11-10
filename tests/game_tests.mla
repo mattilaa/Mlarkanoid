@@ -175,3 +175,228 @@ fn test_pause_freezes_physics_and_blocks_launch() {
     tick(&mut g, 1);
     verify(g.ready && g.paddle == 26000 && g.best == 1234);
 }
+
+#[test]
+fn test_capsules_spawn_on_destruction_and_cycle_through_specials() {
+    var g: Game = new_game(0);
+    g.ready = false;
+    g.broken = 2;
+    g.ball_x = 1500;
+    g.ball_y = 7020;
+    g.ball_vx = 0;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.drop_kind[0] == 1 && g.drop_x[0] == 2000);
+    verify(g.drop_y[0] == 6500);
+    clear_powerups(&mut g);
+    put(&mut g.bricks, 48, 2);
+    g.broken = 14;
+    g.ball_y = 7020;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.broken == 14 && g.drop_kind[0] == 0);
+    g.ball_y = 7020;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.drop_kind[0] == 5);
+    clear_powerups(&mut g);
+    put(&mut g.bricks, 48, 1);
+    g.broken = 17;
+    g.ball_y = 7020;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.drop_kind[0] == 6);
+}
+
+#[test]
+fn test_capsules_fall_collect_and_misses_disappear() {
+    var g: Game = new_game(0);
+    spawn_capsule(&mut g, 1, 30000, 13990);
+    tick(&mut g, 0);
+    verify(g.drop_kind[0] == 0 && g.expand_ticks == 1500);
+    verify(g.score == 100 && g.best == 100 && paddle_width(&g) == 12000);
+    spawn_capsule(&mut g, 4, 2000, 13990);
+    tick(&mut g, 0);
+    verify(g.drop_y[0] == 14014 && g.lives == 3);
+    for i in 0..90 { tick(&mut g, 0); }
+    verify(g.drop_kind[0] == 0 && g.lives == 3);
+}
+
+#[test]
+fn test_expand_refreshes_without_stacking_and_restores_center() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 1);
+    verify(g.paddle == 24000 && paddle_width(&g) == 12000);
+    collect_capsule(&mut g, 1);
+    verify(g.paddle == 24000 && g.expand_ticks == 1500);
+    g.expand_ticks = 1;
+    tick(&mut g, 0);
+    verify(g.paddle == 26000 && paddle_width(&g) == 8000);
+    g.paddle = 52000;
+    collect_capsule(&mut g, 1);
+    verify(g.paddle == 48000);
+    for i in 0..10 { tick(&mut g, 1); }
+    verify(g.paddle + paddle_width(&g) <= 60000);
+}
+
+#[test]
+fn test_expanded_paddle_catches_ball_outside_normal_width() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 1);
+    g.ready = false;
+    g.ball_x = 35000;
+    g.ball_y = 13990;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ball_vy < 0 && g.lives == 3);
+}
+
+#[test]
+fn test_slow_changes_motion_without_compounding_base_velocity() {
+    var g: Game = new_game(0);
+    g.ready = false;
+    g.ball_x = 30000;
+    g.ball_y = 10000;
+    g.ball_vx = 10000;
+    g.ball_vy = 10000;
+    collect_capsule(&mut g, 2);
+    collect_capsule(&mut g, 2);
+    tick(&mut g, 0);
+    verify(g.ball_x == 30052 && g.ball_y == 10052);
+    verify(g.ball_vx == 10000 && g.ball_vy == 10000);
+    g.slow_ticks = 1;
+    tick(&mut g, 0);
+    verify(g.ball_x == 30132 && g.ball_y == 10132);
+}
+
+#[test]
+fn test_catch_holds_ball_until_space_launch() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 3);
+    g.ready = false;
+    g.ball_x = 30000;
+    g.ball_y = 13990;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ready && g.ball_y == 13500);
+    for i in 0..20 { tick(&mut g, 1); }
+    verify(g.ball_x == g.paddle + paddle_width(&g) / 2);
+    launch(&mut g);
+    tick(&mut g, 0);
+    verify(!g.ready && g.ball_y < 13500);
+}
+
+#[test]
+fn test_extra_life_is_capped_at_five() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 4);
+    verify(g.lives == 4);
+    for i in 0..4 { collect_capsule(&mut g, 4); }
+    verify(g.lives == 5);
+}
+
+#[test]
+fn test_mla_covers_whole_arena_and_restores_expanded_paddle() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 1);
+    collect_capsule(&mut g, 5);
+    verify(g.paddle == 0 && paddle_width(&g) == 60000);
+    for i in 0..30 { tick(&mut g, 1); }
+    verify(g.paddle == 0 && g.velocity == 0);
+    g.ready = false;
+    g.ball_x = 59000;
+    g.ball_y = 13990;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ball_vy < 0);
+    g.mla_ticks = 1;
+    tick(&mut g, 0);
+    verify(paddle_width(&g) == 12000 && g.paddle == 24000);
+}
+
+#[test]
+fn test_expand_expiring_during_mla_does_not_shift_full_paddle() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 5);
+    collect_capsule(&mut g, 1);
+    g.expand_ticks = 1;
+    tick(&mut g, 0);
+    verify(g.paddle == 0 && paddle_width(&g) == 60000);
+    g.mla_ticks = 1;
+    tick(&mut g, 0);
+    verify(g.paddle == 26000 && paddle_width(&g) == 8000);
+}
+
+#[test]
+fn test_nuke_collection_advances_wave_and_clears_effects() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 1);
+    spawn_capsule(&mut g, 6, 30000, 13990);
+    spawn_capsule(&mut g, 2, 2000, 5000);
+    tick(&mut g, 0);
+    verify(g.level == 2 && g.remaining == 48 && g.ready);
+    verify(g.score == 700 && g.best == 700);
+    verify(g.blast_ticks == 100 && g.expand_ticks == 0);
+    verify(g.drop_kind[0] == 0 && g.drop_kind[1] == 0);
+}
+
+#[test]
+fn test_large_capsules_fit_inside_arena_and_have_correct_widths() {
+    var g: Game = new_game(0);
+    spawn_capsule(&mut g, 5, 2000, 10000);
+    verify(capsule_at(&g, 0, 10) == 0 && capsule_at(&g, 4, 10) == 0);
+    verify(capsule_at(&g, 5, 10) == -1);
+    spawn_capsule(&mut g, 6, 59000, 10000);
+    verify(g.drop_x[1] == 56000);
+    verify(capsule_at(&g, 54, 10) == 1 && capsule_at(&g, 59, 10) == 1);
+}
+
+#[test]
+fn test_pause_freezes_capsules_timers_and_blast() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 5);
+    spawn_capsule(&mut g, 2, 10000, 8000);
+    g.blast_ticks = 50;
+    g.paused = true;
+    tick(&mut g, 1);
+    verify(g.drop_y[0] == 8000 && g.mla_ticks == 1250 && g.blast_ticks == 50);
+}
+
+#[test]
+fn test_life_loss_resets_all_temporary_effects_and_capsules() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 1);
+    collect_capsule(&mut g, 2);
+    collect_capsule(&mut g, 3);
+    spawn_capsule(&mut g, 5, 30000, 8000);
+    g.ready = false;
+    g.ball_y = 15999;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.lives == 2 && g.ready);
+    verify(g.expand_ticks == 0 && g.slow_ticks == 0 && g.catch_ticks == 0);
+    verify(g.drop_kind[0] == 0 && paddle_width(&g) == 8000);
+}
+
+#[test]
+fn test_eight_layouts_are_distinct_nonempty_and_repeat_with_armor() {
+    var signatures: list<i64> = [];
+    var g: Game = new_game(0);
+    for level in 1..9 {
+        g.level = level;
+        fill_wave(&mut g);
+        var count: i64 = 0;
+        var signature: i64 = 0;
+        for i in 0..60 {
+            if g.bricks[i] > 0 { count += 1; signature += 1 << i; }
+        }
+        verify(count > 0 && count == g.remaining);
+        for prior in signatures { verify(prior != signature); }
+        signatures.push(signature);
+    }
+    for i in 0..60 { verify((brick_hp(1, i) > 0) == (brick_hp(9, i) > 0)); }
+    verify(brick_hp(17, 0) == 3);
+}
