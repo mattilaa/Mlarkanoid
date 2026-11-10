@@ -90,10 +90,10 @@ cracked plates (`╭░╱╮`) after damage.
 
 Every third destroyed brick drops a colored letter capsule. Catch it with the
 paddle for 100 points and its effect; missed capsules fall out of the arena.
-Normal capsule types cycle in order; LSD replaces a configurable percentage
-of capsule drops. MLA, NUKE, and LSD use larger tiles.
+Normal capsule types cycle in order; LSD and XTC each replace a configurable
+percentage of capsule drops. MLA, NUKE, LSD, and XTC use larger tiles.
 They appear as solid dark colored tiles with white letters and padded edges,
-without brackets: blue E, amber S, green C, purple P, teal MLA, red NUKE, blue A, purple D, red H, amber F, purple LSD, and teal V.
+without brackets: blue E, amber S, green C, purple P, teal MLA, red NUKE, blue A, purple D, red H, amber F, purple LSD, teal V, and blue XTC.
 
 | Capsule | Effect |
 | --- | --- |
@@ -107,8 +107,9 @@ without brackets: blue E, amber S, green C, purple P, teal MLA, red NUKE, blue A
 | **D** | Paddle hits choose straight up, either diagonal, or either side for 12 seconds |
 | **H** | Open a real center gap in the paddle for 12 seconds |
 | **F** | Move the ball at 2× speed for 10 seconds |
-| **LSD** | 15 seconds of psychedelic drift, paddle mistakes, and 3× points |
+| **LSD** | 45 seconds of psychedelic drift, paddle mistakes, and 3× points |
 | **V** | Stand the paddle upright for 12 seconds; sides shoot sideways and the top returns balls upward |
+| **XTC** | 15 seconds of stationary disco glow, matching brick colors, and 2× points |
 
 Effects can coexist. Collecting the same capsule refreshes its timer. The status
 bar shows remaining seconds; pause freezes capsules and timers. A lost life or
@@ -136,22 +137,28 @@ formation. A glowing truecolor RGB gradient flows vertically through the arena,
 randomly switching between upward and downward motion. Its dark, softly pulsing
 colors keep the foreground readable. Neon bricks retain their blue/purple tiles, and the
 paddle occasionally hesitates, reverses input, or makes a short unwanted nudge.
-The header shows `LSDx3:seconds` (`LSDx3!` during a mistake). The formation returns
+The header shows `LSDx3:seconds` (`LSDx3!` during a mistake), or `LSDx10`
+during XTC overlap. LSD lasts **45 seconds**, three times XTC's **15 seconds**. The formation returns
 home during the final second, and normal colors and controls resume when the
 timer ends. All brick hits, caught capsules, and wave-clear bonuses earn **3×
 points** while the mode is active, including the LSD pickup itself. Pause freezes the mode; another LSD refreshes it. A lost life or
 new wave clears it. Expiry and a lost life preserve damage to surviving bricks.
 
-Choose how often a capsule is LSD (default **10%**):
+Choose how often capsules are LSD or XTC (each defaults to **10%**):
 
 ```sh
 ./run.sh --lsd-rate 25    # 25% of capsule drops are LSD
 ./run.sh --lsd-rate 0     # disable LSD drops
 ./run.sh --lsd-rate 100   # every capsule drop is LSD
+./run.sh --xtc-rate 100   # every capsule drop is XTC
+./run.sh --lsd-rate 50 --xtc-rate 50  # only LSD and XTC capsules
 ```
 
 The rate applies to the capsules released every third destroyed brick and
-persists across retries and new pilots within the same process.
+persists across retries and new pilots within the same process. If both rates
+are explicit, their sum must be at most 100%. An unspecified rate starts at 10%
+and is reduced when needed to fit an explicit higher rate. Zero disables that
+capsule type.
 
 V makes the paddle a narrow upright bar. Keep using h/l or the arrow keys to
 move it left/right; Space launches sideways in the last movement direction.
@@ -161,6 +168,28 @@ the ball upward. Expand makes the bar taller, Catch holds the ball above its
 top, and H opens a two-row gap through the bar. MLA temporarily keeps the
 paddle flat and full-width; V resumes if its timer has time left. The capsule
 legend shows the V countdown. V resets on expiry, life loss, or a new wave.
+
+XTC lights the arena with fixed pink, blue, violet, and teal pools. Their
+brightness pulses gently in place; the pattern does not travel or move the
+bricks. Brick colors shift subtly to harmonize with each pool while retaining
+readable contrast and their armor glyphs. Its `XTCx2` countdown appears in the capsule legend. Brick hits, caught capsules
+(including XTC itself), and wave-clear bonuses earn **2× points** during XTC. Pause freezes the pulse; repeated pickups refresh the timer
+without jumping the colors. Life loss and new waves clear it. With both XTC and
+LSD active, XTC supplies the stationary background and brick palette while
+LSD's control mistakes continue and all point awards use a **10× multiplier**
+for as long as both timers are active. Scoring returns to 3× with LSD alone
+or 2× with XTC alone as the other timer expires.
+During overlap, bricks move independently in random one-cell steps rather than
+as a formation. Each move checks arena bounds and all other live bricks, so the
+bricks cannot overlap or pass through one another. Ball collisions and new
+capsule drops use each brick's actual position. The bricks return to their
+formation when the overlap ends. Repeated pickups during the active periods
+raise the overlap chaos level (`XTCc1` through `XTCc8`). Bricks attempt moves
+more often, and the ball gets increasingly frequent random redirects. From
+level 3, downward shots join the possible directions. Speed is preserved, and
+held balls stay under player control. Each mode's pickup count resets when
+that mode expires; the chaos level is capped at 8. LSD's flowing glow resumes if XTC
+ends first. XTC alone leaves controls and brick positions normal.
 
 ## Build and test
 

@@ -5,6 +5,13 @@ pub struct Game {
     var drop_kind: list<i64>;
     var drop_x: list<i64>;
     var drop_y: list<i64>;
+    var party_x: list<i64>;
+    var party_y: list<i64>;
+    var previous_brick_x: list<i64>;
+    var previous_brick_y: list<i64>;
+    var party_active: bool;
+    var party_step_ticks: i64;
+    var party_seed: i64;
     var broken: i64;
     var blast_ticks: i64;
     var mla_ticks: i64;
@@ -14,6 +21,13 @@ pub struct Game {
     var scatter_ticks: i64;
     var hole_ticks: i64;
     var fast_ticks: i64;
+    var xtc_rate: i64;
+    var lsd_doses: i64;
+    var xtc_doses: i64;
+    var chaos_kick_ticks: i64;
+    var chaos_seed: i64;
+    var xtc_ticks: i64;
+    var xtc_phase: i64;
     var lsd_rate: i64;
     var drop_seed: i64;
     var glow_phase: i64;
@@ -66,11 +80,17 @@ pub fn clamp(n: i64, low: i64, high: i64) -> i64 {
     return n < low ? low : (n > high ? high : n);
 }
 
-// Capsule kinds: 1 E, 2 S, 3 C, 4 P, 5 MLA, 6 NUKE, 7 A, 8 D, 9 H, 10 F, 11 LSD, 12 V (upright paddle).
+// Capsule kinds: 1 E, 2 S, 3 C, 4 P, 5 MLA, 6 NUKE, 7 A, 8 D, 9 H, 10 F, 11 LSD, 12 V (upright paddle), 13 XTC (stationary disco glow).
 fn empty_slots() -> list<i64> {
     var slots: list<i64> = [];
     for i in 0..8 { slots.push(0); }
     return slots;
+}
+
+fn brick_offsets() -> list<i64> {
+    var offsets: list<i64> = [];
+    for i in 0..60 { offsets.push(0); }
+    return offsets;
 }
 
 pub fn paddle_width(g: &Game) -> i64 {
@@ -163,20 +183,53 @@ fn diagonal_speed(vx: i64, vy: i64) -> i64 {
     return integer_sqrt(((vx / 2) * (vx / 2) + vy * vy) / 2);
 }
 
-pub fn scatter_rebound(g: &mut Game) -> void {
+fn set_ball_direction(g: &mut Game, shot: i64) -> void {
     let speed: i64 = integer_sqrt((g.ball_vx / 2) * (g.ball_vx / 2) + g.ball_vy * g.ball_vy);
     let diagonal: i64 = diagonal_speed(g.ball_vx, g.ball_vy);
-    g.direction_seed = g.direction_seed * 48271 % 2147483647;
-    let shot: i64 = g.direction_seed % 5;
     g.side_shot = false;
     if shot == 0 { g.ball_vx = 0; g.ball_vy = -speed; }
     if shot == 1 { g.ball_vx = -diagonal * 2; g.ball_vy = -diagonal; }
     if shot == 2 { g.ball_vx = diagonal * 2; g.ball_vy = -diagonal; }
     if shot == 3 { g.ball_vx = -speed * 2; g.ball_vy = 0; g.side_shot = true; }
     if shot == 4 { g.ball_vx = speed * 2; g.ball_vy = 0; g.side_shot = true; }
+    if shot == 5 { g.ball_vx = -diagonal * 2; g.ball_vy = diagonal; }
+    if shot == 6 { g.ball_vx = diagonal * 2; g.ball_vy = diagonal; }
+    if shot == 7 { g.ball_vx = 0; g.ball_vy = speed; }
 }
 
-pub fn score_multiplier(g: &Game) -> i64 { return g.lsd_ticks > 0 ? 3 : 1; }
+pub fn scatter_rebound(g: &mut Game) -> void {
+    g.direction_seed = g.direction_seed * 48271 % 2147483647;
+    let shot: i64 = g.direction_seed % 5;
+    set_ball_direction(&mut g, shot);
+}
+
+pub fn chaos_level(g: &Game) -> i64 {
+    if g.lsd_ticks == 0 || g.xtc_ticks == 0 { return 0; }
+    return clamp(g.lsd_doses + g.xtc_doses - 1, 1, 8);
+}
+
+pub fn chaos_interval(g: &Game) -> i64 { return 200 - chaos_level(g) * 20; }
+
+pub fn tick_chaos_ball(g: &mut Game) -> void {
+    let level: i64 = chaos_level(g);
+    if level == 0 { g.chaos_kick_ticks = 0; return; }
+    if g.ready || g.paused || g.over { return; }
+    if g.chaos_kick_ticks > 0 { g.chaos_kick_ticks -= 1; return; }
+    g.chaos_seed = g.chaos_seed * 48271 % 2147483647;
+    let choices: i64 = level >= 3 ? 8 : 5;
+    let shot: i64 = g.chaos_seed % choices;
+    set_ball_direction(&mut g, shot);
+    let interval: i64 = chaos_interval(g);
+    g.chaos_kick_ticks = interval + g.chaos_seed % 25;
+}
+
+pub fn lsd_duration_ticks() -> i64 { return 5625; } // 45 seconds at 125 Hz.
+pub fn xtc_duration_ticks() -> i64 { return 1875; } // 15 seconds at 125 Hz.
+
+pub fn score_multiplier(g: &Game) -> i64 {
+    if g.lsd_ticks > 0 && g.xtc_ticks > 0 { return 10; }
+    return g.lsd_ticks > 0 ? 3 : (g.xtc_ticks > 0 ? 2 : 1);
+}
 
 pub fn award_points(g: &mut Game, points: i64) -> void {
     g.score += points * score_multiplier(g);
@@ -185,20 +238,29 @@ pub fn award_points(g: &mut Game, points: i64) -> void {
 
 pub fn capsule_for_break(g: &mut Game) -> i64 {
     g.drop_seed = g.drop_seed * 48271 % 2147483647;
-    if g.drop_seed % 100 < g.lsd_rate { return 11; }
+    let roll: i64 = g.drop_seed % 100;
+    if roll < g.lsd_rate { return 11; }
+    if roll < g.lsd_rate + g.xtc_rate { return 13; }
     let kind: i64 = (g.broken / 3 - 1) % 11 + 1;
     return kind == 11 ? 12 : kind;
 }
 
 pub fn brick_left(g: &Game, index: i64) -> i64 {
-    return (index % 12 * 5 + g.brick_shift_x) * 1000;
+    return (index % 12 * 5 + g.brick_shift_x + (g.party_active ? g.party_x[index] : 0)) * 1000;
 }
 
 pub fn brick_top(g: &Game, index: i64) -> i64 {
-    return (index / 12 + 2 + g.brick_shift_y) * 1000;
+    return (index / 12 + 2 + g.brick_shift_y + (g.party_active ? g.party_y[index] : 0)) * 1000;
 }
 
 pub fn brick_at(g: &Game, x: i64, y: i64) -> i64 {
+    if g.party_active {
+        for i in 0..60 {
+            if g.bricks[i] > 0 && y == brick_top(g, i) / 1000 &&
+               x >= brick_left(g, i) / 1000 && x < brick_left(g, i) / 1000 + 4 { return i; }
+        }
+        return -1;
+    }
     let col: i64 = x - g.brick_shift_x;
     let row: i64 = y - g.brick_shift_y;
     if col < 0 || col >= 60 || row < 2 || row >= 7 || col % 5 >= 4 { return -1; }
@@ -206,8 +268,69 @@ pub fn brick_at(g: &Game, x: i64, y: i64) -> i64 {
     return g.bricks[index] > 0 ? index : -1;
 }
 
+fn reset_party(g: &mut Game) -> void {
+    g.party_active = false;
+    g.chaos_kick_ticks = 0;
+    g.party_step_ticks = 0;
+    for i in 0..60 {
+        set_brick(&mut g.party_x, i, 0);
+        set_brick(&mut g.party_y, i, 0);
+    }
+}
+
+pub fn brick_space_free(g: &Game, index: i64, left: i64, top: i64) -> bool {
+    // An eight-row play area stays clear of even expanded tilted/upright pads.
+    if left < 0 || left + 4 > 60 || top < 0 || top + 1 > 8 { return false; }
+    for i in 0..60 {
+        if i != index && g.bricks[i] > 0 {
+            let other_left: i64 = brick_left(g, i) / 1000;
+            let other_top: i64 = brick_top(g, i) / 1000;
+            if left < other_left + 4 && left + 4 > other_left &&
+               top < other_top + 1 && top + 1 > other_top { return false; }
+        }
+    }
+    return true;
+}
+
+pub fn tick_party_bricks(g: &mut Game) -> void {
+    if g.lsd_ticks == 0 || g.xtc_ticks == 0 {
+        if g.party_active { reset_party(&mut g); }
+        return;
+    }
+    if !g.party_active {
+        // Start from a non-overlapping formation entirely above the paddle.
+        g.brick_shift_y = clamp(g.brick_shift_y, -2, 1);
+        g.party_active = true;
+        g.party_step_ticks = 0;
+        g.party_seed = (g.score * 13 + g.lsd_seed + 1) % 2147483646 + 1;
+    }
+    if g.party_step_ticks > 0 { g.party_step_ticks -= 1; return; }
+    g.party_seed = g.party_seed * 48271 % 2147483647;
+    let index: i64 = g.party_seed % 60;
+    // Attempt one brick move per 8 ms physics step. Other bricks stay still
+    // during that step, so a clear unit move cannot cross another trajectory.
+    if g.bricks[index] > 0 {
+        g.party_seed = g.party_seed * 48271 % 2147483647;
+        let direction: i64 = g.party_seed % 4;
+        let dx: i64 = direction == 0 ? -1 : (direction == 1 ? 1 : 0);
+        let dy: i64 = direction == 2 ? -1 : (direction == 3 ? 1 : 0);
+        let left: i64 = brick_left(g, index) / 1000 + dx;
+        let top: i64 = brick_top(g, index) / 1000 + dy;
+        // One-cell cardinal steps cannot cross another brick if both the
+        // starting and destination rectangles are clear.
+        if brick_space_free(g, index, left, top) {
+            set_brick(&mut g.party_x, index, left - (index % 12 * 5 + g.brick_shift_x));
+            set_brick(&mut g.party_y, index, top - (index / 12 + 2 + g.brick_shift_y));
+        }
+    }
+    let level: i64 = chaos_level(g);
+    g.party_step_ticks = level < 4 ? 4 - level : 0;
+}
+
 fn reset_lsd(g: &mut Game) -> void {
+    reset_party(&mut g);
     g.lsd_ticks = 0;
+    g.lsd_doses = 0;
     g.glow_phase = 0;
     g.glow_direction = 1;
     g.glow_turn_ticks = 0;
@@ -222,6 +345,7 @@ fn reset_lsd(g: &mut Game) -> void {
 }
 
 pub fn confine_bricks(g: &mut Game) -> void {
+    if g.party_active { return; }
     var left: i64 = 60;
     var right: i64 = 0;
     for i in 0..60 {
@@ -260,25 +384,27 @@ pub fn tick_lsd(g: &mut Game) -> void {
         }
         g.lsd_control_ticks = 50 + g.lsd_seed / 11 % 60;
     }
-    if g.lsd_step_ticks > 0 { g.lsd_step_ticks -= 1; }
-    else {
-        if g.lsd_ticks <= 125 {
-            // Bring the layout home during the final second rather than teleport.
-            if g.brick_shift_x != 0 { g.brick_shift_x += g.brick_shift_x < 0 ? 1 : -1; }
-            if g.brick_shift_y != 0 { g.brick_shift_y += g.brick_shift_y < 0 ? 1 : -1; }
-            g.lsd_step_ticks = 8;
-        } else {
-            g.lsd_seed = g.lsd_seed * 48271 % 2147483647;
-            if g.lsd_seed % 3 == 0 { g.brick_drift_x = -g.brick_drift_x; }
-            if g.lsd_seed / 3 % 3 == 0 { g.brick_drift_y = -g.brick_drift_y; }
-            let x: i64 = g.brick_shift_x + g.brick_drift_x;
-            let y: i64 = g.brick_shift_y + g.brick_drift_y;
-            g.brick_shift_x = x;
-            g.brick_shift_y = y;
-            confine_bricks(&mut g);
-            if g.brick_shift_x != x { g.brick_drift_x = -g.brick_drift_x; }
-            if g.brick_shift_y != y { g.brick_drift_y = -g.brick_drift_y; }
-            g.lsd_step_ticks = 35 + g.lsd_seed % 35;
+    if g.xtc_ticks == 0 {
+        if g.lsd_step_ticks > 0 { g.lsd_step_ticks -= 1; }
+        else {
+            if g.lsd_ticks <= 125 {
+                // Bring the layout home during the final second rather than teleport.
+                if g.brick_shift_x != 0 { g.brick_shift_x += g.brick_shift_x < 0 ? 1 : -1; }
+                if g.brick_shift_y != 0 { g.brick_shift_y += g.brick_shift_y < 0 ? 1 : -1; }
+                g.lsd_step_ticks = 8;
+            } else {
+                g.lsd_seed = g.lsd_seed * 48271 % 2147483647;
+                if g.lsd_seed % 3 == 0 { g.brick_drift_x = -g.brick_drift_x; }
+                if g.lsd_seed / 3 % 3 == 0 { g.brick_drift_y = -g.brick_drift_y; }
+                let x: i64 = g.brick_shift_x + g.brick_drift_x;
+                let y: i64 = g.brick_shift_y + g.brick_drift_y;
+                g.brick_shift_x = x;
+                g.brick_shift_y = y;
+                confine_bricks(&mut g);
+                if g.brick_shift_x != x { g.brick_drift_x = -g.brick_drift_x; }
+                if g.brick_shift_y != y { g.brick_drift_y = -g.brick_drift_y; }
+                g.lsd_step_ticks = 35 + g.lsd_seed % 35;
+            }
         }
     }
     confine_bricks(&mut g);
@@ -332,6 +458,9 @@ fn box_contact(old_x: i64, old_y: i64, x: i64, y: i64,
 pub fn clear_powerups(g: &mut Game) -> void {
     let was_vertical: bool = paddle_vertical(g);
     let center: i64 = g.paddle + paddle_width(g) / 2;
+    g.xtc_ticks = 0;
+    g.xtc_doses = 0;
+    g.xtc_phase = 0;
     g.vertical_ticks = 0;
     g.vertical_direction = 1;
     reset_lsd(&mut g);
@@ -353,7 +482,7 @@ pub fn spawn_capsule(g: &mut Game, kind: i64, x: i64, y: i64) -> void {
     for i in 0..8 {
         if g.drop_kind[i] == 0 {
             set_brick(&mut g.drop_kind, i, kind);
-            set_brick(&mut g.drop_x, i, kind == 6 ? clamp(x, 2000, 56000) : ((kind == 5 || kind == 11) ? clamp(x, 2000, 57000) : x));
+            set_brick(&mut g.drop_x, i, kind == 6 ? clamp(x, 2000, 56000) : ((kind == 5 || kind == 11 || kind == 13) ? clamp(x, 2000, 57000) : x));
             set_brick(&mut g.drop_y, i, y);
             return;
         }
@@ -391,7 +520,8 @@ pub fn collect_capsule(g: &mut Game, kind: i64) -> void {
     if kind == 10 { g.fast_ticks = 1250; }
     if kind == 11 {
         let was_active: bool = g.lsd_ticks > 0;
-        g.lsd_ticks = 1875;
+        g.lsd_doses = was_active ? clamp(g.lsd_doses + 1, 1, 8) : 1;
+        g.lsd_ticks = lsd_duration_ticks();
         g.lsd_seed = (g.score * 17 + g.paddle + g.broken * 31) % 2147483646 + 1;
         g.glow_seed = g.lsd_seed * 48271 % 2147483647;
         if !was_active { g.glow_phase = g.glow_seed % 1536; }
@@ -405,6 +535,16 @@ pub fn collect_capsule(g: &mut Game, kind: i64) -> void {
         g.vertical_ticks = 1500;
         g.vertical_direction = g.velocity < 0 ? -1 : 1;
         g.paddle = clamp(center - paddle_width(g) / 2, 0, 60000 - paddle_width(g));
+    }
+    if kind == 13 {
+        g.xtc_doses = g.xtc_ticks > 0 ? clamp(g.xtc_doses + 1, 1, 8) : 1;
+        if g.xtc_ticks == 0 { g.xtc_phase = 0; }
+        g.xtc_ticks = xtc_duration_ticks();
+    }
+    if (kind == 11 || kind == 13) && chaos_level(g) > 0 {
+        g.chaos_seed = (g.score * 19 + g.paddle + g.lsd_doses * 31 + g.xtc_doses * 43) % 2147483646 + 1;
+        let interval: i64 = chaos_interval(g);
+        if g.chaos_kick_ticks > interval { g.chaos_kick_ticks = interval; }
     }
     award_points(&mut g, 100);
 }
@@ -432,8 +572,8 @@ pub fn tick_capsules(g: &mut Game) -> void {
 pub fn capsule_at(g: &Game, x: i64, y: i64) -> i64 {
     for i in 0..8 {
         let offset: i64 = x - g.drop_x[i] / 1000;
-        let left: i64 = (g.drop_kind[i] == 5 || g.drop_kind[i] == 6 || g.drop_kind[i] == 11) ? -2 : -1;
-        let right: i64 = g.drop_kind[i] == 6 ? 3 : ((g.drop_kind[i] == 5 || g.drop_kind[i] == 11) ? 2 : 1);
+        let left: i64 = (g.drop_kind[i] == 5 || g.drop_kind[i] == 6 || g.drop_kind[i] == 11 || g.drop_kind[i] == 13) ? -2 : -1;
+        let right: i64 = g.drop_kind[i] == 6 ? 3 : ((g.drop_kind[i] == 5 || g.drop_kind[i] == 11 || g.drop_kind[i] == 13) ? 2 : 1);
         if g.drop_kind[i] > 0 && g.drop_y[i] / 1000 == y &&
            offset >= left && offset <= right { return i; }
     }
@@ -509,8 +649,11 @@ pub fn new_game(best: i64) -> Game {
     for i in 0..60 { bricks.push(1); }
     return Game {
         bricks: bricks,
+        party_x: brick_offsets(), party_y: brick_offsets(),
+        previous_brick_x: brick_offsets(), previous_brick_y: brick_offsets(),
+        party_active: false, party_step_ticks: 0, party_seed: 107,
         drop_kind: empty_slots(), drop_x: empty_slots(), drop_y: empty_slots(),
-        broken: 0, blast_ticks: 0, mla_ticks: 0, expand_ticks: 0, slow_ticks: 0, catch_ticks: 0, scatter_ticks: 0, hole_ticks: 0, fast_ticks: 0, lsd_rate: 10, drop_seed: 97, glow_phase: 0, glow_direction: 1, glow_turn_ticks: 0, glow_seed: 101, lsd_ticks: 0, lsd_seed: 97, lsd_step_ticks: 0, lsd_control_ticks: 0, lsd_mistake_ticks: 0, lsd_mistake: 0, brick_shift_x: 0, brick_shift_y: 0, brick_drift_x: 1, brick_drift_y: 1, direction_seed: 73, side_shot: false, vertical_ticks: 0, vertical_direction: 1, angle_ticks: 0, angle_direction: 1, paddle: 26000, velocity: 0,
+        broken: 0, blast_ticks: 0, mla_ticks: 0, expand_ticks: 0, slow_ticks: 0, catch_ticks: 0, scatter_ticks: 0, hole_ticks: 0, fast_ticks: 0, xtc_rate: 10, lsd_doses: 0, xtc_doses: 0, chaos_kick_ticks: 0, chaos_seed: 113, xtc_ticks: 0, xtc_phase: 0, lsd_rate: 10, drop_seed: 97, glow_phase: 0, glow_direction: 1, glow_turn_ticks: 0, glow_seed: 101, lsd_ticks: 0, lsd_seed: 97, lsd_step_ticks: 0, lsd_control_ticks: 0, lsd_mistake_ticks: 0, lsd_mistake: 0, brick_shift_x: 0, brick_shift_y: 0, brick_drift_x: 1, brick_drift_y: 1, direction_seed: 73, side_shot: false, vertical_ticks: 0, vertical_direction: 1, angle_ticks: 0, angle_direction: 1, paddle: 26000, velocity: 0,
         ball_x: 30000, ball_y: 13500, ball_vx: 13000, ball_vy: -9500,
         score: 0, best: best, lives: 3, level: 1, remaining: 60, combo: 0,
         ready: true, paused: false, over: false,
@@ -518,10 +661,15 @@ pub fn new_game(best: i64) -> Game {
     };
 }
 
-pub fn new_game_with_rate(best: i64, lsd_rate: i64) -> Game {
+pub fn new_game_with_rates(best: i64, lsd_rate: i64, xtc_rate: i64) -> Game {
     var g: Game = new_game(best);
     g.lsd_rate = clamp(lsd_rate, 0, 100);
+    g.xtc_rate = clamp(xtc_rate, 0, 100 - g.lsd_rate);
     return g;
+}
+
+pub fn new_game_with_rate(best: i64, lsd_rate: i64) -> Game {
+    return new_game_with_rates(best, lsd_rate, 10);
 }
 
 pub fn launch(g: &mut Game) -> void {
@@ -555,12 +703,21 @@ pub fn step_paddle(g: &mut Game, direction: i64) -> void {
 
 pub fn tick(g: &mut Game, direction: i64) -> void {
     if g.paused || g.over { return; }
-    let old_shift_x: i64 = g.brick_shift_x;
-    let old_shift_y: i64 = g.brick_shift_y;
+    for i in 0..60 {
+        let left: i64 = brick_left(g, i);
+        let top: i64 = brick_top(g, i);
+        set_brick(&mut g.previous_brick_x, i, left);
+        set_brick(&mut g.previous_brick_y, i, top);
+    }
     let old_paddle: i64 = g.paddle;
     let old_width: i64 = paddle_width(g);
     let old_height: i64 = paddle_height(g);
     let old_angle: i64 = paddle_angle(g);
+    if g.xtc_ticks > 0 {
+        g.xtc_ticks -= 1;
+        g.xtc_phase = g.xtc_ticks > 0 ? (g.xtc_phase + 1) % 200 : 0;
+        if g.xtc_ticks == 0 { g.xtc_doses = 0; }
+    }
     if g.vertical_ticks > 0 { g.vertical_ticks -= 1; }
     if g.scatter_ticks > 0 { g.scatter_ticks -= 1; }
     if g.hole_ticks > 0 { g.hole_ticks -= 1; }
@@ -578,6 +735,7 @@ pub fn tick(g: &mut Game, direction: i64) -> void {
     if g.slow_ticks > 0 { g.slow_ticks -= 1; }
     if g.catch_ticks > 0 { g.catch_ticks -= 1; }
     tick_lsd(&mut g);
+    tick_party_bricks(&mut g);
     let control: i64 = lsd_input(g, direction);
     step_paddle(&mut g, control);
     if g.blast_ticks > 0 { g.blast_ticks -= 1; }
@@ -590,6 +748,7 @@ pub fn tick(g: &mut Game, direction: i64) -> void {
         g.ball_y = paddle_surface(g, g.ball_x) - 500;
         return;
     }
+    tick_chaos_ball(&mut g);
     let old_x: i64 = g.ball_x;
     let old_y: i64 = g.ball_y;
     let speed_percent: i64 = (g.slow_ticks > 0 ? 65 : 100) * (g.fast_ticks > 0 ? 2 : 1);
@@ -706,7 +865,7 @@ pub fn tick(g: &mut Game, direction: i64) -> void {
     for i in 0..60 {
         if g.bricks[i] > 0 {
             let contact: BoxContact = box_contact(old_x, old_y, g.ball_x, g.ball_y,
-                (i % 12 * 5 + old_shift_x) * 1000, (i / 12 + 2 + old_shift_y) * 1000,
+                g.previous_brick_x[i], g.previous_brick_y[i],
                 brick_left(g, i), brick_top(g, i), 4000, 1000);
             if contact.time >= 0 && contact.time < hit_time {
                 hit_index = i;

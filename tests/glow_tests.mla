@@ -72,7 +72,63 @@ fn test_glow_random_direction_choices_and_refresh_preserve_continuity() {
     verify(g.glow_direction == -1 && g.glow_turn_ticks >= 90);
     g.glow_phase = 777;
     collect_capsule(&mut g, 11);
-    verify(g.glow_phase == 777 && g.lsd_ticks == 1875);
+    verify(g.glow_phase == 777 && g.lsd_ticks == 5625);
     fill_wave(&mut g);
     verify(g.glow_phase == 0 && g.lsd_ticks == 0);
+}
+
+#[test]
+fn test_xtc_light_pools_keep_fixed_hues_while_brightness_pulses() {
+    for phase in 0..200 {
+        for row in 0..16 {
+            let color: GlowColor = xtc_glow(phase, row);
+            verify(color.red >= 6 && color.red <= 70);
+            verify(color.green >= 6 && color.green <= 70);
+            verify(color.blue >= 6 && color.blue <= 70);
+            if row / 4 == 0 { verify(color.red > color.blue && color.blue > color.green); }
+            if row / 4 == 1 { verify(color.blue > color.green && color.green > color.red); }
+            if row / 4 == 2 { verify(color.blue > color.red && color.red > color.green); }
+            if row / 4 == 3 { verify(color.green > color.blue && color.blue > color.red); }
+        }
+    }
+    let dark: GlowColor = xtc_glow(0, 1);
+    let bright: GlowColor = xtc_glow(100, 1);
+    verify(bright.red > dark.red && bright.blue > dark.blue);
+    let same_pool: GlowColor = xtc_glow(100, 2);
+    verify(bright.red == same_pool.red && bright.green == same_pool.green && bright.blue == same_pool.blue);
+}
+
+#[test]
+fn test_xtc_pulse_and_matching_bricks_change_smoothly_at_loop_boundary() {
+    for phase in 0..200 {
+        for row in 0..16 {
+            let current: GlowColor = xtc_glow(phase, row);
+            let next: GlowColor = xtc_glow((phase + 1) % 200, row);
+            verify(magnitude(current.red - next.red) <= 2);
+            verify(magnitude(current.green - next.green) <= 2);
+            verify(magnitude(current.blue - next.blue) <= 2);
+            let brick: GlowColor = xtc_brick_color(phase, row);
+            let next_brick: GlowColor = xtc_brick_color((phase + 1) % 200, row);
+            verify(magnitude(brick.red - next_brick.red) <= 1);
+            verify(magnitude(brick.green - next_brick.green) <= 1);
+            verify(magnitude(brick.blue - next_brick.blue) <= 1);
+        }
+    }
+}
+
+#[test]
+fn test_xtc_brick_palette_matches_the_light_pools_with_readable_contrast() {
+    for phase_step in 0..20 {
+        for row in 0..16 {
+            let background: GlowColor = xtc_glow(phase_step * 10, row);
+            let brick: GlowColor = xtc_brick_color(phase_step * 10, row);
+            verify(brick.red > background.red + 80 && brick.red <= 255);
+            verify(brick.green > background.green + 80 && brick.green <= 255);
+            verify(brick.blue > background.blue + 80 && brick.blue <= 255);
+            if row / 4 == 0 { verify(brick.red > brick.blue && brick.blue > brick.green); }
+            if row / 4 == 1 { verify(brick.blue > brick.green && brick.green > brick.red); }
+            if row / 4 == 2 { verify(brick.blue > brick.red && brick.red > brick.green); }
+            if row / 4 == 3 { verify(brick.green > brick.blue && brick.blue > brick.red); }
+        }
+    }
 }

@@ -104,9 +104,9 @@ def check_session(command, quit_key, intro_only=False):
             assert "▐━━━━━━▌" in paddle_rows[-1]
         else:
             assert "━━━━━━━━" in paddle_rows[-1] and "▐" not in paddle_rows[-1] and "▌" not in paddle_rows[-1]
-        assert b"PRISM WALL" in initial and b"CATCH:" in initial
+        assert b"PRISM WALL" in initial and b" + " in initial
         assert b"MLA full" in initial and b"NUKE" in initial
-        assert b"D aim" in initial and b"H gap" in initial and b"F 2x" in initial and b"LSD" in initial and b"V up" in initial
+        assert b"D aim" in initial and b"H gap" in initial and b"F 2x" in initial and b"LSD" in initial and b"V up" in initial and b"XTC" in initial
         # The first brick row has several colors, rather than one row gradient.
         first_row = initial.split(b"\r\n")[6]
         assert len(set(re.findall(rb"\x1b\[(9[1-7])m", first_row))) >= 3
@@ -192,18 +192,25 @@ if __name__ == "__main__":
     binary = str(ROOT / "build/mlarkanoid")
     help_result = subprocess.run([binary, "--help"], capture_output=True, text=True)
     assert help_result.returncode == 0 and "--paddle-brackets" in help_result.stdout
-    assert "--lsd-rate" in help_result.stdout
-    for value in ["-1", "101", "no", "1.5", "", "1000"]:
-        rate_result = subprocess.run([binary, "--lsd-rate", value], capture_output=True, text=True)
-        assert rate_result.returncode == 2 and "percentage" in rate_result.stdout
-    missing_rate = subprocess.run([binary, "--lsd-rate"], capture_output=True, text=True)
-    assert missing_rate.returncode == 2
-    for value in ["0", "25", "100"]:
-        rate_help = subprocess.run([binary, "--lsd-rate", value, "--help"], capture_output=True, text=True)
-        assert rate_help.returncode == 0
+    assert "--lsd-rate" in help_result.stdout and "--xtc-rate" in help_result.stdout
+    for option in ["--lsd-rate", "--xtc-rate"]:
+        for value in ["-1", "101", "no", "1.5", "", "1000"]:
+            rate_result = subprocess.run([binary, option, value], capture_output=True, text=True)
+            assert rate_result.returncode == 2 and "percentage" in rate_result.stdout
+        missing_rate = subprocess.run([binary, option], capture_output=True, text=True)
+        assert missing_rate.returncode == 2
+        for value in ["0", "25", "100"]:
+            rate_help = subprocess.run([binary, option, value, "--help"], capture_output=True, text=True)
+            assert rate_help.returncode == 0
+    overfull = subprocess.run([binary, "--lsd-rate", "60", "--xtc-rate", "50"], capture_output=True, text=True)
+    assert overfull.returncode == 2 and "total" in overfull.stdout
+    for options in [["--xtc-rate", "100"], ["--lsd-rate", "100"],
+                    ["--lsd-rate", "50", "--xtc-rate", "50"]]:
+        parsed = subprocess.run([binary] + options, capture_output=True, text=True)
+        assert parsed.returncode == 1 and "ANSI terminal" in parsed.stdout
     invalid_result = subprocess.run([binary, "--invalid-option"], capture_output=True, text=True)
     assert invalid_result.returncode == 2 and "Unknown option" in invalid_result.stdout
     check_session([str(ROOT / "build/mlarkanoid")], b"q")
-    check_session([str(ROOT / "run.sh"), "--paddle-brackets", "--lsd-rate", "25"], b"\x03")
+    check_session([str(ROOT / "run.sh"), "--paddle-brackets", "--lsd-rate", "25", "--xtc-rate", "25"], b"\x03")
     check_session([str(ROOT / "build/mlarkanoid")], b"q", intro_only=True)
     print("PASS: welcome, name entry/editing, Hall of Fame, persistent scores across restart, detailed bricks, gameplay, cleanup")

@@ -1,5 +1,5 @@
-// Dark RGB bloom keeps white/neon game objects readable while the hue field
-// travels vertically. Integer interpolation avoids hard color-band changes.
+// RGB palettes for flowing LSD bloom and stationary XTC disco light pools.
+// Dark backgrounds preserve contrast; integer interpolation keeps pulses smooth.
 pub struct GlowColor { var red: i32; var green: i32; var blue: i32; };
 
 pub fn lsd_glow(phase: i64, row: i64) -> GlowColor {
@@ -22,5 +22,37 @@ pub fn lsd_glow(phase: i64, row: i64) -> GlowColor {
         red: i32(6 + red * intensity / 255),
         green: i32(6 + green * intensity / 255),
         blue: i32(6 + blue * intensity / 255)
+    };
+}
+
+fn disco_tint(row: i64) -> GlowColor {
+    // The light pools stay in these fixed bands. Only brightness breathes.
+    let zone: i64 = row / 4 % 4;
+    if zone == 0 { return GlowColor { red: 255, green: 40, blue: 140 }; }
+    if zone == 1 { return GlowColor { red: 60, green: 110, blue: 255 }; }
+    if zone == 2 { return GlowColor { red: 185, green: 55, blue: 255 }; }
+    return GlowColor { red: 30, green: 230, blue: 190 };
+}
+
+pub fn xtc_glow(phase: i64, row: i64) -> GlowColor {
+    let tint: GlowColor = disco_tint(row);
+    let beat: i64 = phase % 200 < 100 ? phase % 200 : 200 - phase % 200;
+    let edge: i64 = row % 4 == 0 || row % 4 == 3 ? 80 : 100;
+    let intensity: i64 = (24 + beat * 40 / 100) * edge / 100;
+    return GlowColor {
+        red: i32(6 + tint.red * intensity / 255),
+        green: i32(6 + tint.green * intensity / 255),
+        blue: i32(6 + tint.blue * intensity / 255)
+    };
+}
+
+pub fn xtc_brick_color(phase: i64, row: i64) -> GlowColor {
+    let tint: GlowColor = disco_tint(row);
+    let beat: i64 = phase % 200 < 100 ? phase % 200 : 200 - phase % 200;
+    let highlight: i64 = 115 + beat / 5;
+    return GlowColor {
+        red: i32(highlight + tint.red * 115 / 255),
+        green: i32(highlight + tint.green * 115 / 255),
+        blue: i32(highlight + tint.blue * 115 / 255)
     };
 }

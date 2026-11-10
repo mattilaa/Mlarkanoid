@@ -180,7 +180,7 @@ fn test_pause_freezes_physics_and_blocks_launch() {
 
 #[test]
 fn test_capsules_spawn_on_destruction_and_cycle_through_specials() {
-    var g: Game = new_game(0);
+    var g: Game = new_game_with_rates(0, 0, 0);
     g.ready = false;
     g.broken = 2;
     g.ball_x = 1500;
@@ -830,12 +830,12 @@ fn test_lsd_capsule_spawns_and_its_large_tile_fits_both_edges() {
 fn test_lsd_timer_pause_refresh_expiry_and_damage_preservation() {
     var g: Game = new_game(0);
     collect_capsule(&mut g, 11);
-    verify(g.lsd_ticks == 1875 && g.score == 300 && score_multiplier(&g) == 3);
+    verify(g.lsd_ticks == 5625 && g.score == 300 && score_multiplier(&g) == 3);
     g.brick_shift_x = 1;
     g.brick_shift_y = 2;
     g.paused = true;
     tick(&mut g, 1);
-    verify(g.lsd_ticks == 1875 && g.brick_shift_y == 2 && g.paddle == 26000);
+    verify(g.lsd_ticks == 5625 && g.brick_shift_y == 2 && g.paddle == 26000);
     g.paused = false;
     put(&mut g.bricks, 48, 0);
     g.remaining = 59;
@@ -846,7 +846,7 @@ fn test_lsd_timer_pause_refresh_expiry_and_damage_preservation() {
     collect_capsule(&mut g, 11);
     g.lsd_ticks = 1000;
     collect_capsule(&mut g, 11);
-    verify(g.lsd_ticks == 1875);
+    verify(g.lsd_ticks == 5625);
 }
 
 #[test]
@@ -1282,4 +1282,361 @@ fn test_v_stays_inside_both_walls_and_lsd_bricks_stay_above_it() {
     g.brick_shift_y = 5;
     confine_bricks(&mut g);
     verify(g.brick_shift_y == 1);
+}
+
+#[test]
+fn test_xtc_drops_as_a_large_tile_and_fits_arena_edges() {
+    var g: Game = new_game_with_rates(0, 0, 100);
+    g.broken = 35;
+    g.ready = false;
+    g.ball_x = 1500;
+    g.ball_y = 7020;
+    g.ball_vx = 0;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.drop_kind[0] == 13);
+    clear_powerups(&mut g);
+    spawn_capsule(&mut g, 13, 59000, 10000);
+    verify(g.drop_x[0] == 57000);
+    verify(capsule_at(&g, 55, 10) == 0 && capsule_at(&g, 59, 10) == 0);
+    verify(capsule_at(&g, 54, 10) == -1);
+    clear_powerups(&mut g);
+    spawn_capsule(&mut g, 13, 0, 10000);
+    verify(g.drop_x[0] == 2000 && capsule_at(&g, 0, 10) == 0);
+}
+
+#[test]
+fn test_xtc_keeps_controls_and_positions_normal_with_double_points() {
+    var normal: Game = new_game(0);
+    var party: Game = new_game(0);
+    collect_capsule(&mut party, 13);
+    verify(party.xtc_ticks == 1875 && party.score == 200);
+    for i in 0..250 {
+        let direction: i64 = i < 100 ? 1 : -1;
+        tick(&mut normal, direction);
+        tick(&mut party, direction);
+        verify(normal.paddle == party.paddle && normal.velocity == party.velocity);
+        verify(party.brick_shift_x == 0 && party.brick_shift_y == 0 && party.lsd_ticks == 0);
+    }
+    verify(score_multiplier(&party) == 2 && party.remaining == 60);
+}
+
+#[test]
+fn test_xtc_pause_refresh_expiry_life_and_wave_lifecycle() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 11);
+    collect_capsule(&mut g, 13);
+    g.xtc_phase = 77;
+    g.paused = true;
+    tick(&mut g, 0);
+    verify(g.xtc_phase == 77 && g.xtc_ticks == 1875 && g.lsd_ticks == 5625);
+    g.paused = false;
+    g.xtc_ticks = 100;
+    collect_capsule(&mut g, 13);
+    verify(g.xtc_phase == 77 && g.xtc_ticks == 1875);
+    g.xtc_ticks = 1;
+    tick(&mut g, 0);
+    verify(g.xtc_ticks == 0 && g.xtc_phase == 0 && g.lsd_ticks > 0);
+    collect_capsule(&mut g, 13);
+    fill_wave(&mut g);
+    verify(g.xtc_ticks == 0 && g.xtc_phase == 0 && g.lsd_ticks == 0);
+    collect_capsule(&mut g, 13);
+    g.ready = false;
+    g.ball_y = 15999;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.lives == 2 && g.xtc_ticks == 0 && g.xtc_phase == 0);
+}
+
+#[test]
+fn test_xtc_doubles_awards_and_overlap_uses_ten_times_points() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 13);
+    verify(g.score == 200 && score_multiplier(&g) == 2);
+    award_points(&mut g, 50);
+    verify(g.score == 300);
+    collect_capsule(&mut g, 4);
+    verify(g.score == 500);
+    advance_wave(&mut g);
+    verify(g.score == 1500 && score_multiplier(&g) == 1);
+    collect_capsule(&mut g, 13);
+    collect_capsule(&mut g, 11);
+    verify(score_multiplier(&g) == 10 && g.score == 2700);
+    award_points(&mut g, 100);
+    verify(g.score == 3700);
+    g.lsd_ticks = 1;
+    tick(&mut g, 0);
+    verify(score_multiplier(&g) == 2);
+    award_points(&mut g, 100);
+    verify(g.score == 3900);
+    g.xtc_ticks = 1;
+    tick(&mut g, 0);
+    verify(score_multiplier(&g) == 1);
+    award_points(&mut g, 100);
+    verify(g.score == 4000 && g.best == 4000);
+}
+
+#[test]
+fn test_xtc_lsd_overlap_moves_bricks_independently_without_collisions() {
+    for tier in 0..2 {
+        var g: Game = new_game(0);
+        collect_capsule(&mut g, 11);
+        collect_capsule(&mut g, 13);
+        if tier == 1 { g.lsd_doses = 8; g.xtc_doses = 8; }
+        var independent: bool = false;
+        var moved: bool = false;
+        for step in 0..600 {
+            tick(&mut g, 0);
+            verify(g.party_active);
+            for i in 0..60 {
+                let left: i64 = brick_left(&g, i);
+                let top: i64 = brick_top(&g, i);
+                verify(left >= 0 && left + 4000 <= 60000 && top >= 0 && top + 1000 <= 8000);
+                if g.party_x[i] != 0 || g.party_y[i] != 0 { moved = true; }
+                if g.party_x[i] != g.party_x[0] || g.party_y[i] != g.party_y[0] { independent = true; }
+                for j in 0..i {
+                    let other_left: i64 = brick_left(&g, j);
+                    let other_top: i64 = brick_top(&g, j);
+                    verify(!(left < other_left + 4000 && left + 4000 > other_left &&
+                             top < other_top + 1000 && top + 1000 > other_top));
+                    // Check the halfway positions too: paths must not cross.
+                    let mid_x: i64 = (left + g.previous_brick_x[i]) / 2;
+                    let mid_y: i64 = (top + g.previous_brick_y[i]) / 2;
+                    let other_mid_x: i64 = (other_left + g.previous_brick_x[j]) / 2;
+                    let other_mid_y: i64 = (other_top + g.previous_brick_y[j]) / 2;
+                    verify(!(mid_x < other_mid_x + 4000 && mid_x + 4000 > other_mid_x &&
+                             mid_y < other_mid_y + 1000 && mid_y + 1000 > other_mid_y));
+                }
+            }
+        }
+        verify(moved && independent && g.remaining == 60);
+    }
+}
+
+#[test]
+fn test_overlap_move_rejects_occupied_space_and_moves_in_free_space() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 11);
+    collect_capsule(&mut g, 13);
+    tick(&mut g, 0);
+    let other_left: i64 = brick_left(&g, 1) / 1000;
+    let other_top: i64 = brick_top(&g, 1) / 1000;
+    verify(!brick_space_free(&g, 0, other_left, other_top));
+    verify(!brick_space_free(&g, 0, -1, 0));
+    verify(!brick_space_free(&g, 0, 57, 0));
+    verify(!brick_space_free(&g, 0, 0, 8));
+    keep_two_bricks(&mut g, 1);
+    verify(brick_space_free(&g, 48, 20, 0));
+}
+
+#[test]
+fn test_overlap_render_and_collision_follow_individual_brick_positions() {
+    var g: Game = new_game(0);
+    keep_two_bricks(&mut g, 2);
+    collect_capsule(&mut g, 11);
+    collect_capsule(&mut g, 13);
+    tick(&mut g, 0);
+    put(&mut g.party_x, 48, 10);
+    put(&mut g.party_y, 48, -2);
+    g.party_step_ticks = 100;
+    g.chaos_kick_ticks = 100;
+    g.lsd_control_ticks = 100;
+    g.ready = false;
+    g.ball_x = 11500;
+    g.ball_y = 5020;
+    g.ball_vx = 0;
+    g.ball_vy = -10000;
+    verify(brick_at(&g, 10, 4) == 48 && brick_at(&g, 1, 6) == -1);
+    tick(&mut g, 0);
+    verify(g.bricks[48] == 1 && g.ball_vy > 0 && g.ball_y >= 5000);
+}
+
+#[test]
+fn test_overlap_pause_and_expiry_restore_the_formation() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 11);
+    collect_capsule(&mut g, 13);
+    for i in 0..100 { tick(&mut g, 0); }
+    g.paused = true;
+    let x: i64 = g.party_x[0];
+    let y: i64 = g.party_y[0];
+    let ticks: i64 = g.xtc_ticks;
+    tick(&mut g, 1);
+    verify(g.party_x[0] == x && g.party_y[0] == y && g.xtc_ticks == ticks);
+    g.paused = false;
+    g.xtc_ticks = 1;
+    tick(&mut g, 0);
+    verify(!g.party_active && g.lsd_ticks > 0);
+    for i in 0..60 { verify(g.party_x[i] == 0 && g.party_y[i] == 0); }
+    collect_capsule(&mut g, 13);
+    tick(&mut g, 0);
+    verify(g.party_active);
+    g.lsd_ticks = 1;
+    tick(&mut g, 0);
+    verify(!g.party_active && g.xtc_ticks > 0 && g.brick_shift_x == 0 && g.brick_shift_y == 0);
+    for i in 0..60 { verify(g.party_x[i] == 0 && g.party_y[i] == 0); }
+}
+
+#[test]
+fn test_lsd_lasts_three_times_as_long_as_xtc_with_ten_times_overlap_score() {
+    var g: Game = new_game(0);
+    verify(lsd_duration_ticks() == 5625 && xtc_duration_ticks() == 1875);
+    verify(lsd_duration_ticks() == xtc_duration_ticks() * 3);
+    collect_capsule(&mut g, 11);
+    collect_capsule(&mut g, 13);
+    verify(g.score == 1300 && score_multiplier(&g) == 10);
+    for i in 0..1875 { tick(&mut g, 0); }
+    verify(g.xtc_ticks == 0 && g.lsd_ticks == 3750 && score_multiplier(&g) == 3);
+    verify(!g.party_active);
+    for i in 0..3750 { tick(&mut g, 0); }
+    verify(g.lsd_ticks == 0 && score_multiplier(&g) == 1);
+    verify(g.brick_shift_x == 0 && g.brick_shift_y == 0 && g.remaining == 60);
+}
+
+#[test]
+fn test_joint_lsd_and_xtc_rates_select_only_requested_types() {
+    var mixed: Game = new_game_with_rates(0, 50, 50);
+    mixed.broken = 3;
+    var lsd: i64 = 0;
+    var xtc: i64 = 0;
+    for i in 0..1000 {
+        let kind: i64 = capsule_for_break(&mut mixed);
+        verify(kind == 11 || kind == 13);
+        if kind == 11 { lsd += 1; } else { xtc += 1; }
+    }
+    verify(lsd > 400 && lsd < 600 && xtc > 400 && xtc < 600);
+    var forced: Game = new_game_with_rates(0, 0, 100);
+    forced.broken = 3;
+    for i in 0..100 { verify(capsule_for_break(&mut forced) == 13); }
+    var disabled: Game = new_game_with_rates(0, 0, 0);
+    for i in 1..100 {
+        disabled.broken = i * 3;
+        let kind: i64 = capsule_for_break(&mut disabled);
+        verify(kind != 11 && kind != 13);
+    }
+}
+
+#[test]
+fn test_both_rates_survive_wave_changes_and_game_configuration() {
+    var g: Game = new_game_with_rates(123, 25, 75);
+    verify(g.lsd_rate == 25 && g.xtc_rate == 75 && g.best == 123);
+    fill_wave(&mut g);
+    verify(g.lsd_rate == 25 && g.xtc_rate == 75);
+    var maximum: Game = new_game_with_rate(0, 100);
+    verify(maximum.lsd_rate == 100 && maximum.xtc_rate == 0);
+}
+
+#[test]
+fn test_repeated_doses_increase_chaos_level_and_reduce_redirect_interval() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 11);
+    verify(g.lsd_doses == 1 && chaos_level(&g) == 0);
+    collect_capsule(&mut g, 13);
+    verify(g.xtc_doses == 1 && chaos_level(&g) == 1 && chaos_interval(&g) == 180);
+    collect_capsule(&mut g, 11);
+    verify(g.lsd_doses == 2 && chaos_level(&g) == 2);
+    collect_capsule(&mut g, 13);
+    verify(g.xtc_doses == 2 && chaos_level(&g) == 3);
+    for i in 0..20 { collect_capsule(&mut g, 11); collect_capsule(&mut g, 13); }
+    verify(g.lsd_doses == 8 && g.xtc_doses == 8 && chaos_level(&g) == 8);
+    verify(chaos_interval(&g) == 40 && score_multiplier(&g) == 10);
+}
+
+#[test]
+fn test_chaos_ball_redirects_are_more_frequent_at_higher_doses() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 11);
+    collect_capsule(&mut g, 13);
+    g.ready = false;
+    g.chaos_seed = 1;
+    g.chaos_kick_ticks = 0;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick_chaos_ball(&mut g);
+    verify(g.ball_vx < 0 && g.ball_vy < 0);
+    let slow_interval: i64 = g.chaos_kick_ticks;
+    let vx: i64 = g.ball_vx;
+    let vy: i64 = g.ball_vy;
+    tick_chaos_ball(&mut g);
+    verify(g.ball_vx == vx && g.ball_vy == vy && g.chaos_kick_ticks == slow_interval - 1);
+    g.lsd_doses = 8;
+    g.xtc_doses = 8;
+    g.chaos_seed = 1;
+    g.chaos_kick_ticks = 0;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick_chaos_ball(&mut g);
+    verify(g.ball_vx == 0 && g.ball_vy == 10000);
+    verify(g.chaos_kick_ticks < slow_interval);
+}
+
+#[test]
+fn test_high_chaos_supports_all_eight_directions_and_conserves_speed() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 11);
+    collect_capsule(&mut g, 13);
+    g.lsd_doses = 3;
+    g.ready = false;
+    for seed in 1..9 {
+        g.chaos_seed = seed;
+        g.chaos_kick_ticks = 0;
+        g.ball_vx = 0;
+        g.ball_vy = 10000;
+        tick_chaos_ball(&mut g);
+        if seed == 1 { verify(g.ball_vx == 0 && g.ball_vy > 0); }
+        if seed == 2 { verify(g.ball_vx > 0 && g.ball_vy > 0); }
+        if seed == 3 { verify(g.ball_vx < 0 && g.ball_vy > 0); }
+        if seed == 4 { verify(g.ball_vx > 0 && g.ball_vy == 0 && g.side_shot); }
+        if seed == 5 { verify(g.ball_vx < 0 && g.ball_vy == 0 && g.side_shot); }
+        if seed == 6 { verify(g.ball_vx > 0 && g.ball_vy < 0); }
+        if seed == 7 { verify(g.ball_vx < 0 && g.ball_vy < 0); }
+        if seed == 8 { verify(g.ball_vx == 0 && g.ball_vy < 0); }
+        let energy: i64 = (g.ball_vx / 2) * (g.ball_vx / 2) + g.ball_vy * g.ball_vy;
+        verify(magnitude(energy - 100000000) < 30000);
+    }
+}
+
+#[test]
+fn test_held_paused_and_finished_balls_do_not_get_random_redirects() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 11);
+    collect_capsule(&mut g, 13);
+    g.chaos_seed = 5;
+    g.chaos_kick_ticks = 0;
+    tick_chaos_ball(&mut g);
+    verify(g.chaos_seed == 5 && g.ball_vx == 13000 && g.ball_vy == -9500);
+    g.ready = false;
+    g.paused = true;
+    tick_chaos_ball(&mut g);
+    verify(g.chaos_seed == 5);
+    g.paused = false;
+    g.over = true;
+    tick_chaos_ball(&mut g);
+    verify(g.chaos_seed == 5);
+}
+
+#[test]
+fn test_live_ball_chaos_combines_with_fast_and_stops_when_overlap_ends() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 11);
+    collect_capsule(&mut g, 13);
+    collect_capsule(&mut g, 10);
+    g.ready = false;
+    g.ball_x = 30000;
+    g.ball_y = 10000;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    g.chaos_seed = 5;
+    g.chaos_kick_ticks = 0;
+    tick(&mut g, 0);
+    verify(g.ball_vx == 0 && g.ball_vy == -10000 && g.ball_y == 9840);
+    g.xtc_ticks = 1;
+    tick(&mut g, 0);
+    verify(chaos_level(&g) == 0 && g.xtc_doses == 0 && g.chaos_kick_ticks == 0);
+    verify(g.ball_vx == 0 && g.ball_vy == -10000);
+    collect_capsule(&mut g, 13);
+    verify(g.xtc_doses == 1 && chaos_level(&g) > 0);
+    fill_wave(&mut g);
+    verify(g.lsd_doses == 0 && g.xtc_doses == 0 && chaos_level(&g) == 0);
 }
