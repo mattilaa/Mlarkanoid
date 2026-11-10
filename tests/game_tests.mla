@@ -400,3 +400,148 @@ fn test_eight_layouts_are_distinct_nonempty_and_repeat_with_armor() {
     for i in 0..60 { verify((brick_hp(1, i) > 0) == (brick_hp(9, i) > 0)); }
     verify(brick_hp(17, 0) == 3);
 }
+
+#[test]
+fn test_angle_capsule_joins_drop_cycle_and_uses_a_small_tile() {
+    var g: Game = new_game(0);
+    g.broken = 20;
+    g.ready = false;
+    g.ball_x = 1500;
+    g.ball_y = 7020;
+    g.ball_vx = 0;
+    g.ball_vy = -10000;
+    tick(&mut g, 0);
+    verify(g.drop_kind[0] == 7);
+    verify(capsule_at(&g, 1, 6) == 0 && capsule_at(&g, 3, 6) == 0);
+    verify(capsule_at(&g, 0, 6) == -1 && capsule_at(&g, 4, 6) == -1);
+}
+
+#[test]
+fn test_angle_capsule_changes_the_visible_paddle_surface_and_lean() {
+    var g: Game = new_game(0);
+    spawn_capsule(&mut g, 7, 30000, 13990);
+    tick(&mut g, 0);
+    verify(g.angle_ticks == 1500 && paddle_angle(&g) == 1);
+    verify(paddle_surface(&g, 26000) == 10000 && paddle_surface(&g, 34000) == 14000);
+    verify(paddle_at(&g, 26, 10) && paddle_at(&g, 33, 13));
+    verify(!paddle_at(&g, 30, 14));
+    verify(g.ball_y == 11500 && g.score == 100);
+    tick(&mut g, -1);
+    verify(paddle_angle(&g) == -1);
+    verify(paddle_surface(&g, g.paddle) == 14000);
+    tick(&mut g, 1);
+    verify(paddle_angle(&g) == 1);
+}
+
+#[test]
+fn test_both_ramps_rebound_at_physical_45_degrees_and_preserve_speed() {
+    for side in 0..2 {
+        var g: Game = new_game(0);
+        collect_capsule(&mut g, 7);
+        g.angle_direction = side == 0 ? -1 : 1;
+        g.ready = false;
+        g.ball_x = 30000;
+        g.ball_y = 11990;
+        g.ball_vx = 0;
+        g.ball_vy = 10000;
+        tick(&mut g, 0);
+        verify(g.ball_vy < 0);
+        verify(g.ball_vx * g.angle_direction > 0);
+        verify(magnitude(g.ball_vx) == magnitude(g.ball_vy) * 2);
+        let squared_speed: i64 = (g.ball_vx / 2) * (g.ball_vx / 2) + g.ball_vy * g.ball_vy;
+        verify(magnitude(squared_speed - 100000000) < 30000);
+        verify(g.ball_y < paddle_surface(&g, g.ball_x));
+    }
+}
+
+#[test]
+fn test_ramp_collision_uses_its_height_not_the_old_flat_row() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 7);
+    g.ready = false;
+    g.ball_x = 27000;
+    g.ball_y = 10490;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ball_vy < 0 && g.ball_y < 10500);
+    // A ball already below the ramp must not hit an invisible horizontal pad.
+    g.ball_x = 30000;
+    g.ball_y = 13990;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ball_vy > 0 && g.ball_y > 14000);
+    // A crossing beyond the finite ramp's endpoint must also miss.
+    g.ball_x = 20000;
+    g.ball_y = 6990;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ball_vy > 0);
+}
+
+#[test]
+fn test_catch_holds_and_releases_a_ball_above_the_ramp() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 7);
+    collect_capsule(&mut g, 3);
+    g.ready = false;
+    g.ball_x = 30000;
+    g.ball_y = 11990;
+    g.ball_vx = 0;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.ready && g.ball_y == 11500);
+    tick(&mut g, -1);
+    verify(g.ball_y == paddle_surface(&g, g.ball_x) - 500);
+    launch(&mut g);
+    tick(&mut g, 0);
+    verify(!g.ready && g.ball_vy < 0 && g.ball_x > g.paddle);
+}
+
+#[test]
+fn test_capsules_are_collected_at_the_ramp_surface() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 7);
+    spawn_capsule(&mut g, 4, 30000, 11990);
+    tick(&mut g, 0);
+    verify(g.lives == 4 && g.drop_kind[0] == 0);
+}
+
+#[test]
+fn test_angle_effect_stacks_with_expand_and_is_suppressed_by_mla() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 1);
+    collect_capsule(&mut g, 7);
+    verify(paddle_width(&g) == 12000);
+    verify(paddle_surface(&g, g.paddle) == 8000);
+    verify(paddle_surface(&g, g.paddle + 12000) == 14000);
+    collect_capsule(&mut g, 5);
+    verify(paddle_angle(&g) == 0 && paddle_surface(&g, 10000) == 14000);
+    g.mla_ticks = 1;
+    tick(&mut g, 0);
+    verify(paddle_angle(&g) == 1 && paddle_width(&g) == 12000);
+    verify(g.ball_y == 10500);
+}
+
+#[test]
+fn test_angle_timer_pause_expiry_and_wave_reset() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 7);
+    g.paused = true;
+    tick(&mut g, -1);
+    verify(g.angle_ticks == 1500 && g.angle_direction == 1);
+    g.paused = false;
+    g.angle_ticks = 1;
+    tick(&mut g, 0);
+    verify(paddle_angle(&g) == 0 && g.ball_y == 13500);
+    collect_capsule(&mut g, 7);
+    fill_wave(&mut g);
+    verify(g.angle_ticks == 0 && paddle_angle(&g) == 0);
+    collect_capsule(&mut g, 7);
+    g.ready = false;
+    g.ball_y = 15999;
+    g.ball_vy = 10000;
+    tick(&mut g, 0);
+    verify(g.lives == 2 && g.angle_ticks == 0);
+}

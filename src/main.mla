@@ -217,7 +217,8 @@ fn capsule_letter(kind: i64) -> str8 {
     if kind == 3 { return "C"; }
     if kind == 4 { return "P"; }
     if kind == 5 { return "MLA"; }
-    return "NUKE";
+    if kind == 6 { return "NUKE"; }
+    return "A";
 }
 
 fn capsule_color(kind: i64) -> i32 {
@@ -225,6 +226,7 @@ fn capsule_color(kind: i64) -> i32 {
     if kind == 2 { return color_bright_yellow(); }
     if kind == 3 { return color_bright_green(); }
     if kind == 4 { return color_bright_magenta(); }
+    if kind == 7 { return color_bright_blue(); }
     return kind == 5 ? color_bright_white() : color_bright_red();
 }
 
@@ -234,7 +236,7 @@ fn capsule_background(kind: i64) -> i32 {
     if kind == 3 { return color_green(); }
     if kind == 4 { return color_magenta(); }
     if kind == 5 { return color_cyan(); }
-    return color_red();
+    return kind == 7 ? color_blue() : color_red();
 }
 
 fn effect_timer(frame: StringBuilder, letter: str8, ticks: i64) -> void {
@@ -282,15 +284,16 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8) -> void
     builder_append(frame, reset());
     builder_append(frame, clear_eol());
     builder_append(frame, "\r\n  CATCH: ");
-    for kind in 1..7 {
+    for kind in 1..8 {
         builder_append(frame, fg(capsule_color(kind)));
         builder_append(frame, capsule_letter(kind));
         if kind == 1 { builder_append(frame, " wide "); }
         if kind == 2 { builder_append(frame, " slow "); }
         if kind == 3 { builder_append(frame, " catch "); }
-        if kind == 4 { builder_append(frame, " life "); }
+        if kind == 4 { builder_append(frame, " +1 "); }
         if kind == 5 { builder_append(frame, " full "); }
-        if kind == 6 { builder_append(frame, " blast"); }
+        if kind == 6 { builder_append(frame, " blast "); }
+        if kind == 7 { builder_append(frame, " tilt"); }
     }
     builder_append(frame, reset());
     builder_append(frame, clear_eol());
@@ -309,9 +312,10 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8) -> void
             if !g.over && x == g.ball_x / 1000 && y == g.ball_y / 1000 {
                 builder_append(frame, fg(color_bright_white()));
                 builder_append(frame, "●");
-            } else if y == 14 && x >= g.paddle / 1000 && x < g.paddle / 1000 + paddle_width(g) / 1000 {
+            } else if paddle_at(g, x, y) {
                 builder_append(frame, fg(color_bright_cyan()));
-                if x == g.paddle / 1000 { builder_append(frame, "▐"); }
+                if paddle_angle(g) != 0 { builder_append(frame, paddle_glyph(g)); }
+                else if x == g.paddle / 1000 { builder_append(frame, "▐"); }
                 else if x == g.paddle / 1000 + paddle_width(g) / 1000 - 1 { builder_append(frame, "▌"); }
                 else { builder_append(frame, "━"); }
             } else if capsule >= 0 {
@@ -383,6 +387,7 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8) -> void
             builder_append(frame, magnitude(g.velocity) / 4500 > i ? "▰" : "▱");
         }
     }
+    effect_timer(frame, paddle_angle(g) < 0 ? "A╱" : "A╲", g.angle_ticks);
     effect_timer(frame, "MLA", g.mla_ticks);
     effect_timer(frame, "E", g.expand_ticks);
     effect_timer(frame, "S", g.slow_ticks);

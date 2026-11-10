@@ -80,9 +80,9 @@ cracked plates (`╭░╱╮`) after damage.
 
 Every third destroyed brick drops a colored letter capsule. Catch it with the
 paddle for 100 points and its effect; missed capsules fall out of the arena.
-The six capsule types cycle in order, including larger **MLA** and **NUKE** capsules.
+The seven capsule types cycle in order, including larger **MLA** and **NUKE** capsules.
 They appear as solid dark colored tiles with white letters and padded edges,
-without brackets: blue E, amber S, green C, purple P, teal MLA, and red NUKE.
+without brackets: blue E, amber S, green C, purple P, teal MLA, red NUKE, and blue A.
 
 | Capsule | Effect |
 | --- | --- |
@@ -92,11 +92,19 @@ without brackets: blue E, amber S, green C, purple P, teal MLA, and red NUKE.
 | **P** | Add one life, up to five |
 | **MLA** | Cover the entire 60-cell arena with the paddle for 10 seconds |
 | **NUKE** | Blast all remaining bricks and advance to the next wave |
+| **A** | Tilt the paddle into a 45° ramp for 12 seconds; h leans left, l right |
 
 Effects can coexist. Collecting the same capsule refreshes its timer. The status
 bar shows remaining seconds; pause freezes capsules and timers. A lost life or
 new wave clears capsules and temporary effects. When MLA expires, the paddle
 returns to the center at its normal size (or expanded size if E is still active).
+
+The A paddle uses diagonal glyphs (`╱` / `╲`) across several rows. The ball
+and falling capsules collide with this visible ramp. A ball rebounds up-left or
+up-right at 45°, keeping its speed; terminal cells are treated as twice as tall
+as they are wide. Catch still holds the ball above the ramp until Space releases
+it. Expanded paddles also tilt; MLA stays flat and suppresses the lean until its
+full-width effect expires. Losing a life or clearing a wave resets the tilt.
 
 ## Build and test
 
