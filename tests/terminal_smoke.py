@@ -68,14 +68,17 @@ def check_session(command, quit_key, intro_only=False):
         assert "▟".encode() in intro and "▓".encode() in intro, "Logo bevel/shadow missing"
         assert b"  SCORE " not in intro and b"READY" not in intro
         os.write(master, b"hlpr")
-        idle = collect(0.1)
+        idle = collect(0.15)
+        assert b"38;2;255;65;80" not in idle, "Static logo was repainted during animation"
+        assert b"38;2;65;85;210" not in idle, "Static gradient was repainted during animation"
         assert b"  SCORE " not in idle, "Gameplay keys bypassed the welcome screen"
         resize(18, 50)
         expect(b"Resize to at least")
         os.write(master, b" ")
         collect(0.05)
         resize(24, 80)
-        expect(b"PRESS SPACE OR ENTER")
+        resized = expect(b"PRESS SPACE OR ENTER")
+        assert b"38;2;255;65;80" in resized, "Logo was not restored after resizing"
         if intro_only:
             os.write(master, quit_key)
             expect(b"\x1b[?1049l")
@@ -86,7 +89,8 @@ def check_session(command, quit_key, intro_only=False):
         hall = expect(b"HALL OF FAME")
         assert b"ARCADE" in hall and b"9999" in hall
         os.write(master, b"t")
-        expect(b"PRESS SPACE OR ENTER")
+        returned = expect(b"PRESS SPACE OR ENTER")
+        assert b"38;2;255;65;80" in returned, "Logo was not restored after Hall of Fame"
         os.write(master, b"\r" if quit_key == b"q" else b" ")
         expect(b"ENTER YOUR PILOT NAME")
         os.write(master, b"tesx\x7ft\r")

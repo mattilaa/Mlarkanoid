@@ -105,11 +105,9 @@ fn logo_gradient(row: i64) -> str8 {
     return fg_rgb(65, 85, 210);
 }
 
-fn render_logo(frame: StringBuilder, elapsed: i64) -> void {
-    // Transparent lettering over an offset extrusion; half blocks bevel edges.
-    for row in 5..13 {
-        intro_line(frame, i32(row), 3, "                                                            ", color_default());
-    }
+fn render_logo(frame: StringBuilder) -> void {
+    // Draw the static logo once after screen entry/resize. Erasing and
+    // repainting it every animation frame makes terminals visibly flicker.
     builder_append(frame, fg_rgb(30, 45, 105));
     for y in 0..7 {
         for x in 0..59 {
@@ -119,13 +117,11 @@ fn render_logo(frame: StringBuilder, elapsed: i64) -> void {
             }
         }
     }
-    let glint: i64 = elapsed / 90 % 90;
     for y in 0..7 {
         for x in 0..59 {
             if logo_pixel(x, y) {
                 builder_append(frame, cursor_pos(i32(5 + y), i32(3 + x)));
-                if x + y == glint { builder_append(frame, fg_rgb(255, 255, 255)); }
-                else { builder_append(frame, logo_gradient(y)); }
+                builder_append(frame, logo_gradient(y));
                 if !logo_pixel(x, y - 1) && !logo_pixel(x - 1, y) {
                     builder_append(frame, "▟");
                 } else if !logo_pixel(x, y - 1) && !logo_pixel(x + 1, y) {
@@ -144,7 +140,7 @@ fn render_logo(frame: StringBuilder, elapsed: i64) -> void {
     }
 }
 
-fn render_intro(frame: StringBuilder, elapsed: i64, paddle_brackets: bool) -> void {
+fn render_intro(frame: StringBuilder, elapsed: i64, paddle_brackets: bool, redraw_logo: bool) -> void {
     builder_clear(frame);
     builder_append(frame, reset());
     intro_line(frame, 2, 2, "╔════════════════════════════════════════════════════════════╗", color_bright_blue());
@@ -158,7 +154,7 @@ fn render_intro(frame: StringBuilder, elapsed: i64, paddle_brackets: bool) -> vo
         intro_line(frame, 17, i32(3 + brick * 5), "▄▄▄▄", row_color((11 - brick + elapsed / 250) % 5));
     }
     intro_line(frame, 4, 22, "M L A R K A N O I D", color_bright_white());
-    render_logo(frame, elapsed);
+    if redraw_logo { render_logo(frame); }
     intro_line(frame, 14, 17, "B R E A K   T H E   W A L L", color_bright_white());
     intro_line(frame, 15, 14, "3 LIVES  /  NEON BRICKS  /  BIG COMBOS", color_bright_black());
     intro_line(frame, 16, 3, "                                                            ", color_default());
@@ -317,7 +313,7 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8, paddle_
                 builder_append(frame, "●");
             } else if paddle_at(g, x, y) {
                 builder_append(frame, fg(color_bright_cyan()));
-                if paddle_angle(g) != 0 { builder_append(frame, paddle_glyph(g)); }
+                if paddle_angle(g) != 0 { builder_append(frame, paddle_glyph(g, x)); }
                 else if paddle_brackets && x == g.paddle / 1000 { builder_append(frame, "▐"); }
                 else if paddle_brackets && x == g.paddle / 1000 + paddle_width(g) / 1000 - 1 { builder_append(frame, "▌"); }
                 else { builder_append(frame, "━"); }
@@ -450,6 +446,7 @@ fn main() -> i32 {
     var accumulator: i64 = 0;
     var next_frame: i64 = 0;
     var was_small: bool = false;
+    var intro_redraw: bool = true;
     while running {
         let now: i64 = now_ms();
         let size: TermSize = stdout_size();
@@ -470,11 +467,13 @@ fn main() -> i32 {
                     over_seen = false;
                     launch_after = now + 250;
                     print!("{}", cursor_code(cmd_clear_screen()));
+                    intro_redraw = true;
                     break;
                 } else if key == 27 {
                     naming = false;
                     welcome = true;
                     print!("{}", cursor_code(cmd_clear_screen()));
+                    intro_redraw = true;
                 } else if key == 127 || key == 8 {
                     if builder_len(name_editor) > 0 {
                         let old: str8 = builder_to_string(name_editor);
@@ -495,6 +494,7 @@ fn main() -> i32 {
                 naming = true;
                 builder_clear(name_editor);
                 print!("{}", cursor_code(cmd_clear_screen()));
+                intro_redraw = true;
                 continue;
             }
             if showing_scores {
@@ -508,6 +508,7 @@ fn main() -> i32 {
                     launch_after = now + 250;
                 }
                 print!("{}", cursor_code(cmd_clear_screen()));
+                intro_redraw = true;
                 continue;
             }
             if key == 116 || key == 84 {
@@ -515,6 +516,7 @@ fn main() -> i32 {
                 direction = 0;
                 input_until = 0;
                 print!("{}", cursor_code(cmd_clear_screen()));
+                intro_redraw = true;
                 continue;
             }
             if welcome {
@@ -526,6 +528,7 @@ fn main() -> i32 {
                     accumulator = 0;
                     launch_after = now + 250;
                     print!("{}", cursor_code(cmd_clear_screen()));
+                    intro_redraw = true;
                     // Give the start key time to settle before accepting a launch.
                     break;
                 }
@@ -568,6 +571,7 @@ fn main() -> i32 {
         }
         if small != was_small {
             print!("{}", cursor_code(cmd_clear_screen()));
+            intro_redraw = true;
             was_small = small;
         }
         accumulator += clamp(now - previous, 0, 64);
@@ -587,11 +591,15 @@ fn main() -> i32 {
             over_seen = true;
             showing_scores = true;
             print!("{}", cursor_code(cmd_clear_screen()));
+            intro_redraw = true;
         }
         if now >= next_frame {
             if showing_scores && !small { render_highscores(&scores, frame, save_failed, g.over); }
             else if naming && !small { render_name(frame, name_editor); }
-            else if welcome && !small { render_intro(frame, now - intro_started, paddle_brackets); }
+            else if welcome && !small {
+                render_intro(frame, now - intro_started, paddle_brackets, intro_redraw);
+                intro_redraw = false;
+            }
             else { render(&g, frame, small, player, paddle_brackets); }
             next_frame = now + 16;
         }

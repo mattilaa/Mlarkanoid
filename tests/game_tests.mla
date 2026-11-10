@@ -1,5 +1,7 @@
 mod game;
 mod std::testing;
+mod std::strbuf;
+use std::strbuf::StringBuilder;
 use game::*;
 use std::testing::verify;
 
@@ -544,4 +546,24 @@ fn test_angle_timer_pause_expiry_and_wave_reset() {
     g.ball_vy = 10000;
     tick(&mut g, 0);
     verify(g.lives == 2 && g.angle_ticks == 0);
+}
+
+#[test]
+fn test_ramp_half_blocks_join_and_follow_the_physical_surface() {
+    var g: Game = new_game(0);
+    collect_capsule(&mut g, 7);
+    // Backslash: top half then bottom half, across two columns per row.
+    verify(std::strbuf::eq(paddle_glyph(&g, 26), "▀") == 1);
+    verify(std::strbuf::eq(paddle_glyph(&g, 27), "▄") == 1);
+    g.angle_direction = -1;
+    verify(std::strbuf::eq(paddle_glyph(&g, 26), "▄") == 1);
+    verify(std::strbuf::eq(paddle_glyph(&g, 27), "▀") == 1);
+    // Fractional paddle motion must keep glyph halves aligned with collisions.
+    g.paddle += 800;
+    for x in 26..34 {
+        let surface: i64 = paddle_surface(&g, x * 1000 + 500);
+        let glyph: str8 = paddle_glyph(&g, x);
+        verify(std::strbuf::eq(glyph, surface % 1000 < 500 ? "▀" : "▄") == 1);
+        verify(paddle_at(&g, x, surface / 1000));
+    }
 }

@@ -4,7 +4,7 @@ An oldskool Arkanoid-style terminal game written in MLang. Neon brick rows,
 Unicode block glyphs, momentum-driven paddle control, impact flashes, combo
 scoring, three lives, and progressively faster waves with armored bricks.
 Rendering uses `std::esc` from the sibling `../mlang` checkout.
-An animated arcade welcome screen features a beveled metallic logo with a warm-to-cool gradient and sweeping glint, cycling neon
+An animated arcade welcome screen features a static beveled metallic logo with a warm-to-cool gradient, cycling neon
 bricks, and a bouncing ball. Press **Space** or **Enter**, type your pilot
 name, then press **Enter** to play. **Space** launches your first ball.
 
@@ -109,7 +109,8 @@ bar shows remaining seconds; pause freezes capsules and timers. A lost life or
 new wave clears capsules and temporary effects. When MLA expires, the paddle
 returns to the center at its normal size (or expanded size if E is still active).
 
-The A paddle uses diagonal glyphs (`╱` / `╲`) across several rows. The ball
+The A paddle uses joined half-block pairs (`▀▄` / `▄▀`) across several rows
+for a continuous 45° ramp; `╱` / `╲` in the status bar indicate its lean. The ball
 and falling capsules collide with this visible ramp. A ball rebounds up-left or
 up-right at 45°, keeping its speed; terminal cells are treated as twice as tall
 as they are wide. Catch still holds the ball above the ramp until Space releases

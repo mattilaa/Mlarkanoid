@@ -77,9 +77,12 @@ pub fn paddle_at(g: &Game, x: i64, y: i64) -> bool {
     return y == paddle_surface(g, x * 1000 + 500) / 1000;
 }
 
-pub fn paddle_glyph(g: &Game) -> str8 {
-    if paddle_angle(g) < 0 { return "╱"; }
-    return "╲";
+pub fn paddle_glyph(g: &Game, x: i64) -> str8 {
+    // Two half-height cells join into one solid diagonal on 2:1 terminals.
+    // Choose the half from the same surface used by collision detection so
+    // the pattern remains aligned as the paddle moves between cell columns.
+    let surface: i64 = paddle_surface(g, x * 1000 + 500);
+    return surface % 1000 < 500 ? "▀" : "▄";
 }
 
 fn diagonal_speed(vx: i64, vy: i64) -> i64 {
