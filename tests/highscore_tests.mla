@@ -1,0 +1,126 @@
+mod highscores;
+mod bricks;
+mod std::testing;
+mod std::strbuf;
+mod std::fs;
+mod std::time;
+use highscores::*;
+use bricks::brick_glyph;
+use std::testing::verify;
+use std::strbuf::eq;
+use std::strbuf::free;
+use std::fs::write_all_text;
+use std::fs::read_all_text;
+use std::fs::remove_tree;
+use std::time::now_ns;
+
+#[test]
+fn test_top_ten_keeps_unique_personal_bests_in_descending_order() {
+    var table: Highscores = empty_highscores();
+    for i in 1..14 {
+        let name: str8 = format!("P{}", i);
+        record_score(&mut table, name, i * 100, i);
+        free(name);
+    }
+    verify(table.count == 10 && table.points[0] == 1300 && table.points[9] == 400);
+    verify(record_score(&mut table, "p5", 5000, 20));
+    verify(table.count == 10 && eq(table.names[0], "P5") == 1 && table.points[0] == 5000);
+    verify(!record_score(&mut table, "P5", 400, 30));
+    verify(!record_score(&mut table, "LOW", 1, 1));
+    var found: i64 = 0;
+    for i in 0..10 { if eq(table.names[i], "P5") == 1 { found += 1; } }
+    verify(found == 1);
+    free_highscores(&mut table);
+}
+
+#[test]
+fn test_ties_use_highest_wave_and_otherwise_keep_existing_order() {
+    var table: Highscores = empty_highscores();
+    record_score(&mut table, "ALICE", 100, 2);
+    record_score(&mut table, "BOB", 100, 3);
+    record_score(&mut table, "CAROL", 100, 3);
+    verify(eq(table.names[0], "BOB") == 1 && eq(table.names[1], "CAROL") == 1);
+    verify(record_score(&mut table, "ALICE", 100, 4));
+    verify(eq(table.names[0], "ALICE") == 1 && table.count == 3);
+    free_highscores(&mut table);
+}
+
+#[test]
+fn test_names_are_safe_uppercase_and_bounded() {
+    let name: str8 = normalize_name("alice example-too-long\x1b[31m");
+    verify(eq(name, "ALICE_EXAMPL") == 1);
+    free(name);
+    let empty: str8 = normalize_name("");
+    verify(eq(empty, "PLAYER") == 1);
+    free(empty);
+    var table: Highscores = empty_highscores();
+    verify(!record_score(&mut table, "ZERO", 0, 1));
+    verify(!record_score(&mut table, "BAD", 10, 0));
+    verify(!record_score(&mut table, "BIG", 1000000000000, 1));
+    free_highscores(&mut table);
+}
+
+#[test]
+fn test_parser_skips_bad_rows_overflow_and_terminal_controls() {
+    var table: Highscores = parse_highscores("BAD\nALICE\t120\t2\nBOB\t999999999999999999999999\t1\n\x1b[31mEVIL\t9999\t1\nNEG\t-50\t1\nEXTRA\t12\t2\t3\nTOOLONGPLAYER\t900\t1\nalice\t150\t3\nCAROL\t90\t2");
+    verify(table.count == 2 && table.points[0] == 150);
+    verify(eq(table.names[0], "ALICE") == 1 && eq(table.names[1], "CAROL") == 1);
+    free_highscores(&mut table);
+}
+
+#[test]
+fn test_scores_save_and_reload_from_disk() {
+    let directory: str8 = format!("/tmp/mlarkanoid-score-test-{}", now_ns());
+    let path: str8 = format!("{}/nested/highscores.tsv", directory);
+    var original: Highscores = empty_highscores();
+    record_score(&mut original, "ALICE", 500, 3);
+    record_score(&mut original, "BOB", 750, 4);
+    verify(save_highscores(&original, path));
+    free_highscores(&mut original);
+    var loaded: Highscores = load_highscores(path);
+    verify(loaded.count == 2 && loaded.points[0] == 750 && loaded.waves[0] == 4);
+    verify(eq(loaded.names[0], "BOB") == 1);
+    record_score(&mut loaded, "ALICE", 1000, 5);
+    verify(save_highscores(&loaded, path));
+    free_highscores(&mut loaded);
+    var again: Highscores = load_highscores(path);
+    verify(again.count == 2 && eq(again.names[0], "ALICE") == 1 && again.points[0] == 1000);
+    free_highscores(&mut again);
+    remove_tree(directory);
+    free(path);
+    free(directory);
+}
+
+#[test]
+fn test_missing_file_is_empty_and_save_failure_is_reported() {
+    let path: str8 = format!("/tmp/mlarkanoid-score-file-{}", now_ns());
+    var table: Highscores = load_highscores(path);
+    verify(table.count == 0);
+    let write_result = write_all_text(path, "keep this file");
+    verify(write_result.is_ok());
+    let impossible: str8 = format!("{}/scores.tsv", path);
+    record_score(&mut table, "PILOT", 100, 1);
+    verify(!save_highscores(&table, impossible));
+    let read_result = read_all_text(path);
+    verify(read_result.is_ok());
+    let text: str8 = read_result.unwrap();
+    verify(eq(text, "keep this file") == 1);
+    free(text);
+    free_highscores(&mut table);
+    remove_tree(path);
+    free(impossible);
+    free(path);
+}
+
+#[test]
+fn test_themed_bricks_have_caps_cores_and_damaged_armor() {
+    verify(eq(brick_glyph(1, 20, 1, 0), "▐") == 1);
+    verify(eq(brick_glyph(1, 20, 1, 1), "◇") == 1);
+    verify(eq(brick_glyph(2, 20, 1, 0), "╞") == 1);
+    verify(eq(brick_glyph(7, 20, 1, 1), "╬") == 1);
+    verify(eq(brick_glyph(8, 20, 1, 1), "◉") == 1);
+    verify(eq(brick_glyph(2, 1, 2, 0), "╔") == 1);
+    verify(eq(brick_glyph(2, 1, 2, 1), "▓") == 1);
+    verify(eq(brick_glyph(17, 1, 3, 1), "╬") == 1);
+    verify(eq(brick_glyph(2, 1, 1, 1), "░") == 1);
+}

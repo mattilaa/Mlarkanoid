@@ -1,0 +1,54 @@
+// Four terminal cells per brick; only single-cell glyphs are used.
+// Caps, inset cores, latticework, and damaged armor vary by theme and health.
+pub fn brick_glyph(level: i64, index: i64, hp: i64, part: i64) -> str8 {
+    if hp >= 2 {
+        if part == 0 { return "╔"; }
+        if part == 3 { return "╗"; }
+        return hp >= 3 ? "╬" : "▓";
+    }
+    if level > 1 && index < 12 {
+        if part == 0 { return "╭"; }
+        if part == 3 { return "╮"; }
+        return part == 1 ? "░" : "╱";
+    }
+    let theme: i64 = (level - 1) % 8;
+    if theme == 0 {
+        if part == 0 { return "▐"; }
+        if part == 3 { return "▌"; }
+        return (index + part) % 2 == 0 ? "◆" : "◇";
+    }
+    if theme == 1 {
+        if part == 0 { return "╞"; }
+        if part == 3 { return "╡"; }
+        return "═";
+    }
+    if theme == 2 {
+        if part == 0 { return "◢"; }
+        if part == 3 { return "◣"; }
+        return part == 1 ? "▓" : "▒";
+    }
+    if theme == 3 {
+        if part == 0 { return "╱"; }
+        if part == 3 { return "╲"; }
+        return "◇";
+    }
+    if theme == 4 {
+        if index % 2 == 0 {
+            if part == 0 { return "▛"; }
+            if part == 3 { return "▜"; }
+            return "▀";
+        }
+        if part == 0 { return "▙"; }
+        if part == 3 { return "▟"; }
+        return "▄";
+    }
+    if theme == 5 {
+        if part == 0 { return "╟"; }
+        if part == 3 { return "╢"; }
+        return index % 2 == 0 ? "▒" : "╫";
+    }
+    if theme == 6 { return part == 0 || part == 3 ? "▣" : "╬"; }
+    if part == 0 { return "▐"; }
+    if part == 3 { return "▌"; }
+    return index % 2 == 0 ? "◉" : "▪";
+}

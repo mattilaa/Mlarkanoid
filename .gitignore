@@ -3,3 +3,6 @@
 *.dSYM/
 /mlang_commands.json
 /mlang_test_bin
+
+/mlarkanoid-highscores.tsv
+/mlarkanoid-highscores.tsv.tmp.*

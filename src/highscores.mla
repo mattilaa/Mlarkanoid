@@ -1,0 +1,190 @@
+mod std::env::detail;
+use std::env::detail::__env_get_var;
+mod std::fs;
+mod std::strbuf;
+use std::strbuf::*;
+use std::strbuf::len;
+use std::fs::read_all_text;
+use std::fs::write_all_text;
+use std::fs::mkdir_p;
+use std::fs::parent_dir;
+
+extern fn rename(old_path: str8, new_path: str8) -> i32;
+extern fn getpid() -> i32;
+
+pub struct Highscores {
+    var names: list<str8>;
+    var points: list<i64>;
+    var waves: list<i64>;
+    var count: i64;
+};
+
+fn put_name(values: &mut list<str8>, index: i64, value: str8) -> void { values[index] = value; }
+fn put_number(values: &mut list<i64>, index: i64, value: i64) -> void { values[index] = value; }
+
+pub fn empty_highscores() -> Highscores {
+    var names: list<str8> = [];
+    var points: list<i64> = [];
+    var waves: list<i64> = [];
+    for i in 0..10 { names.push(""); points.push(0); waves.push(0); }
+    return Highscores { names: names, points: points, waves: waves, count: 0 };
+}
+
+pub fn name_key(key: i32) -> i32 {
+    if key >= 97 && key <= 122 { return key - 32; }
+    if (key >= 65 && key <= 90) || (key >= 48 && key <= 57) || key == 45 || key == 95 { return key; }
+    if key == 32 { return 95; }
+    return 0;
+}
+
+pub fn normalize_name(name: str8) -> str8 {
+    let builder: StringBuilder = builder_new(32);
+    let name_length: i64 = len(name);
+    for i in 0..name_length {
+        let key: i32 = name_key(byte_at(name, i));
+        if key != 0 && builder_len(builder) < 12 { builder_append_char(builder, key); }
+    }
+    if builder_len(builder) == 0 { builder_append(builder, "PLAYER"); }
+    let result: str8 = builder_take_string(builder);
+    builder_free(builder);
+    return result;
+}
+
+pub fn record_score(table: &mut Highscores, name: str8, score: i64, wave: i64) -> bool {
+    if score <= 0 || score > 999999999999 || wave < 1 || wave > 999999 { return false; }
+    let normalized: str8 = normalize_name(name);
+    var existing: i64 = -1;
+    for i in 0..table.count {
+        if eq(table.names[i], normalized) == 1 { existing = i; break; }
+    }
+    if existing >= 0 {
+        if score < table.points[existing] || (score == table.points[existing] && wave <= table.waves[existing]) {
+            free(normalized);
+            return false;
+        }
+        free(table.names[existing]);
+        var i: i64 = existing;
+        while i + 1 < table.count {
+            let n: str8 = table.names[i + 1];
+            let p: i64 = table.points[i + 1];
+            let w: i64 = table.waves[i + 1];
+            put_name(&mut table.names, i, n);
+            put_number(&mut table.points, i, p);
+            put_number(&mut table.waves, i, w);
+            i += 1;
+        }
+        table.count -= 1;
+        put_name(&mut table.names, table.count, "");
+    }
+    var position: i64 = 0;
+    while position < table.count {
+        if score > table.points[position] || (score == table.points[position] && wave > table.waves[position]) { break; }
+        position += 1;
+    }
+    if position >= 10 { free(normalized); return false; }
+    if table.count == 10 { free(table.names[9]); }
+    else { table.count += 1; }
+    var i: i64 = table.count - 1;
+    while i > position {
+        let n: str8 = table.names[i - 1];
+        let p: i64 = table.points[i - 1];
+        let w: i64 = table.waves[i - 1];
+        put_name(&mut table.names, i, n);
+        put_number(&mut table.points, i, p);
+        put_number(&mut table.waves, i, w);
+        i -= 1;
+    }
+    put_name(&mut table.names, position, normalized);
+    put_number(&mut table.points, position, score);
+    put_number(&mut table.waves, position, wave);
+    return true;
+}
+
+fn decimal(text: str8, start: i64, end: i64, limit: i64) -> i64 {
+    if start >= end { return -1; }
+    var value: i64 = 0;
+    for i in start..end {
+        let digit: i64 = byte_at(text, i) - 48;
+        if digit < 0 || digit > 9 { return -1; }
+        if value > (limit - digit) / 10 { return -1; }
+        value = value * 10 + digit;
+    }
+    return value;
+}
+
+pub fn parse_highscores(text: str8) -> Highscores {
+    var table: Highscores = empty_highscores();
+    if len(text) > 16384 { return table; }
+    var start: i64 = 0;
+    let text_length: i64 = len(text);
+    let scan_end: i64 = text_length + 1;
+    for end in 0..scan_end {
+        if end == len(text) || byte_at(text, end) == 10 {
+            var first: i64 = -1;
+            var second: i64 = -1;
+            var valid: bool = true;
+            for i in start..end {
+                let key: i32 = byte_at(text, i);
+                if key == 9 {
+                    if first < 0 { first = i; }
+                    else if second < 0 { second = i; }
+                    else { valid = false; }
+                } else if first < 0 && (name_key(key) == 0 || key == 32) { valid = false; }
+            }
+            if valid && first > start && first - start <= 12 && second > first {
+                let score: i64 = decimal(text, first + 1, second, 999999999999);
+                let wave: i64 = decimal(text, second + 1, end, 999999);
+                let name: str8 = sub(text, start, first - start);
+                record_score(&mut table, name, score, wave);
+                free(name);
+            }
+            start = end + 1;
+        }
+    }
+    return table;
+}
+
+pub fn load_highscores(path: str8) -> Highscores {
+    let read = read_all_text(path);
+    if read.is_err() { return empty_highscores(); }
+    let text: str8 = read.unwrap();
+    let table: Highscores = parse_highscores(text);
+    free(text);
+    return table;
+}
+
+pub fn save_highscores(table: &Highscores, path: str8) -> bool {
+    let directory: str8 = parent_dir(path);
+    let created = mkdir_p(directory);
+    free(directory);
+    if created.is_err() { return false; }
+    let builder: StringBuilder = builder_new(1024);
+    for i in 0..table.count {
+        let line: str8 = format!("{}\t{}\t{}\n", table.names[i], table.points[i], table.waves[i]);
+        builder_append(builder, line);
+        free(line);
+    }
+    let temporary: str8 = format!("{}.tmp.{}", path, getpid());
+    let written = write_all_text(temporary, builder_borrow_string(builder));
+    builder_free(builder);
+    var saved: bool = false;
+    if written.is_ok() { saved = rename(temporary, path) == 0; }
+    if !saved { std::fs::remove_tree(temporary); }
+    free(temporary);
+    return saved;
+}
+
+pub fn highscore_path() -> str8 {
+    let override: str8 = __env_get_var("MLARKANOID_HIGHSCORE_FILE");
+    if len(override) > 0 { return format!("{}", override); }
+    let xdg: str8 = __env_get_var("XDG_DATA_HOME");
+    if len(xdg) > 0 { return format!("{}/mlarkanoid/highscores.tsv", xdg); }
+    let home_dir: str8 = __env_get_var("HOME");
+    if len(home_dir) > 0 { return format!("{}/.local/share/mlarkanoid/highscores.tsv", home_dir); }
+    return format!("{}", "mlarkanoid-highscores.tsv");
+}
+
+pub fn free_highscores(table: &mut Highscores) -> void {
+    for i in 0..table.count { free(table.names[i]); }
+    table.count = 0;
+}

@@ -18,7 +18,7 @@ fi
 mkdir -p "${ROOT_DIR}/build"
 cd "${ROOT_DIR}"
 if [[ "${1:-}" == "test" ]]; then
-    "${MLANG}" test tests/game_tests.mla -Wno-colon-if
+    "${MLANG}" test tests -Wno-colon-if
 else
     "${MLANG}" -Wno-colon-if src/main.mla -o build/mlarkanoid
 fi

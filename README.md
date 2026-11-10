@@ -5,8 +5,8 @@ Unicode block glyphs, momentum-driven paddle control, impact flashes, combo
 scoring, three lives, and progressively faster waves with armored bricks.
 Rendering uses `std::esc` from the sibling `../mlang` checkout.
 An animated arcade welcome screen features a beveled metallic logo with a warm-to-cool gradient and sweeping glint, cycling neon
-bricks, and a bouncing ball. Press **Space** or **Enter** to enter the game,
-then **Space** to launch your first ball.
+bricks, and a bouncing ball. Press **Space** or **Enter**, type your pilot
+name, then press **Enter** to play. **Space** launches your first ball.
 
 ## Play
 
@@ -26,7 +26,9 @@ at least **64 columns × 24 rows** and a font supporting block/box glyphs.
 | Space / Enter | Start from the welcome screen |
 | Space | Launch the ball during play |
 | `p` | Pause / resume |
-| `r` | Restart, keeping the best score for this session |
+| `r` | Restart with the same pilot |
+| `t` | Open / close the Hall of Fame; gameplay freezes while viewing |
+| `n` | Enter a new pilot name after game over |
 | `q` / Ctrl-C | Quit |
 
 Hold or repeat a direction to build paddle speed; reverse to brake and change
@@ -36,8 +38,31 @@ continues for 180 ms after the last repeat, then friction slows the paddle.
 Your terminal/OS key-repeat delay affects the initial hold response.
 
 Clear a wave for 500 bonus points. Consecutive brick breaks between paddle
-hits multiply points up to ×8. `▓` bricks take two hits. Best score lasts until
-the process exits. Shrinking the terminal suspends play until it fits again.
+hits multiply points up to ×8. Armored bricks take two or three hits; their
+plates crack as they weaken. Shrinking the terminal suspends play until it fits again.
+
+## Persistent high scores
+
+The Hall of Fame keeps the **top 10 different pilots**, with one personal best
+per name. Names are up to 12 characters (`A-Z`, `0-9`, `_`, `-`); lowercase is
+converted to uppercase and spaces become underscores. Backspace edits the name;
+an empty name uses `PLAYER`. Equal scores rank by the highest wave reached.
+
+Scores save automatically as points improve, including before game over, and
+survive quitting, restarting a game, or restarting the application. Press **T**
+on the welcome screen or during play to view the table. It opens automatically
+at game over. **R** retries with the same pilot; **N** enters another name.
+
+The default file is `~/.local/share/mlarkanoid/highscores.tsv` (or
+`$XDG_DATA_HOME/mlarkanoid/highscores.tsv` when configured). To choose another:
+
+```sh
+MLARKANOID_HIGHSCORE_FILE=/path/to/highscores.tsv ./run.sh
+```
+
+The game creates the directory and replaces the file atomically. Invalid rows
+are ignored when loading. If saving fails, the table marks the failure and the
+game retries on exit. Scores are local to this computer.
 
 ## Waves and colors
 
@@ -45,7 +70,11 @@ Eight layouts cycle with increasing ball speed and armor: Prism Wall, Neon
 Windows, Fire Chevron, Ice Diamond, Checker Pop, Color Pillars, Fortress, and
 Space Invader. Each has its own color arrangement: rainbow mosaics, alternating
 neon colors, fiery patches, icy highlights, checker tiles, colored pillars,
-fortress accents, and a green/cyan invader with magenta antennae.
+fortress accents, and a green/cyan invader with magenta antennae. Each brick
+has four detailed glyph cells: diamond cores (`▐◆◇▌`), rails (`╞══╡`),
+sloped lava tiles (`◢▓▒◣`), crystal facets, checker caps, lattice pillars,
+fortress studs, or alien eyes. Armored caps (`╔▓▓╗`, `╔╬╬╗`) change to
+cracked plates (`╭░╱╮`) after damage.
 
 ## Falling capsules
 
@@ -89,8 +118,11 @@ The runner restores the saved terminal settings and cursor on exit or signals.
 ## Source layout
 
 - `src/game.mla`: deterministic fixed-point physics at 125 Hz and wave rules.
-- `src/main.mla`: nonblocking keyboard input and buffered color rendering.
+- `src/main.mla`: nonblocking input, name entry, Hall of Fame, and rendering.
+- `src/highscores.mla`: top-10 ranking, validated loading, and atomic saving.
+- `src/bricks.mla`: themed brick glyphs and visible armor damage.
 - `tests/game_tests.mla`: collisions, acceleration, lives, pause, and waves.
+- `tests/highscore_tests.mla`: ranking, persistence, file errors, and brick glyphs.
 - `scripts/build.sh`: reproducible build/test entry point.
 
 Use four-space indentation, `snake_case` functions/fields, and `PascalCase`

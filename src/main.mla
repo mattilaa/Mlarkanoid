@@ -1,4 +1,6 @@
 mod game;
+mod highscores;
+mod bricks;
 mod std::esc;
 mod std::io;
 mod std::strbuf;
@@ -6,6 +8,8 @@ mod std::term;
 mod std::time;
 
 use game::*;
+use highscores::*;
+use bricks::brick_glyph;
 use std::esc::*;
 use std::io::read_keycode_nonblocking;
 use std::io::stdin;
@@ -19,6 +23,11 @@ use std::strbuf::builder_free;
 use std::strbuf::StringBuilder;
 use std::strbuf::free;
 use std::strbuf::byte_at;
+use std::strbuf::builder_append_char;
+use std::strbuf::builder_len;
+use std::strbuf::builder_to_string;
+use std::strbuf::sub;
+use std::strbuf::len;
 use std::term::*;
 use std::time::now_ms;
 use std::time::sleep_ms;
@@ -156,7 +165,48 @@ fn render_intro(frame: StringBuilder, elapsed: i64) -> void {
     intro_line(frame, 18, 27, "▐━━━━━━▌", color_bright_cyan());
     intro_line(frame, 21, 19, elapsed / 650 % 2 == 0 ? "[ PRESS SPACE OR ENTER ]" : "[                     ]", color_bright_yellow());
     intro_line(frame, 22, 13, "H/L or ←/→  ACCELERATE     P  PAUSE", color_bright_cyan());
-    intro_line(frame, 23, 19, "Q  QUIT   /   MLANG ARCADE", color_bright_black());
+    intro_line(frame, 23, 19, "T HIGH SCORES  /  Q QUIT", color_bright_black());
+    builder_append(frame, reset());
+    write(stdout(), builder_borrow_string(frame));
+}
+
+fn render_name(frame: StringBuilder, editor: StringBuilder) -> void {
+    builder_clear(frame);
+    builder_append(frame, reset());
+    intro_line(frame, 5, 15, "◇ ENTER YOUR PILOT NAME ◇", color_bright_cyan());
+    intro_line(frame, 8, 11, "Your personal best joins the top 10 pilots.", color_bright_white());
+    intro_line(frame, 11, 20, "NAME > ", color_bright_yellow());
+    builder_append(frame, builder_borrow_string(editor));
+    builder_append(frame, "_             ");
+    intro_line(frame, 14, 13, "A-Z / 0-9 / _ / -   UP TO 12 CHARACTERS", color_bright_black());
+    intro_line(frame, 16, 14, "ENTER TO PLAY    BACKSPACE TO EDIT", color_bright_cyan());
+    intro_line(frame, 18, 16, "ESC BACK / EMPTY NAME = PLAYER", color_bright_black());
+    builder_append(frame, reset());
+    write(stdout(), builder_borrow_string(frame));
+}
+
+fn render_highscores(table: &Highscores, frame: StringBuilder, failed: bool, over: bool) -> void {
+    builder_clear(frame);
+    builder_append(frame, reset());
+    intro_line(frame, 2, 11, "◆ HALL OF FAME / TOP 10 PILOTS ◆", color_bright_cyan());
+    intro_line(frame, 3, 16, over ? "GAME OVER / PERSONAL BESTS" : "PERSONAL BESTS / SAVED BETWEEN RUNS", color_bright_yellow());
+    intro_line(frame, 5, 5, "RANK   PILOT               SCORE          WAVE", color_bright_black());
+    intro_line(frame, 6, 5, "──────────────────────────────────────────────────────", color_bright_blue());
+    for i in 0..10 {
+        let color: i32 = i == 0 ? color_bright_yellow() : (i < 3 ? color_bright_cyan() : color_white());
+        builder_append(frame, cursor_pos(i32(7 + i), 6));
+        builder_append(frame, fg(color));
+        append_number(frame, i + 1);
+        intro_line(frame, i32(7 + i), 12, i < table.count ? table.names[i] : "---", color);
+        builder_append(frame, cursor_pos(i32(7 + i), 32));
+        if i < table.count { append_number(frame, table.points[i]); }
+        else { builder_append(frame, "---"); }
+        builder_append(frame, cursor_pos(i32(7 + i), 48));
+        if i < table.count { append_number(frame, table.waves[i]); }
+        else { builder_append(frame, "---"); }
+    }
+    intro_line(frame, 19, 8, failed ? "SAVE FAILED / scores kept in memory; retry on exit" : "Best score per name / ties ranked by highest wave", failed ? color_bright_red() : color_bright_black());
+    intro_line(frame, 21, 10, over ? "R RESTART / N NEW PILOT / T RETURN / Q QUIT" : "T / ENTER / SPACE / ESC RETURN    Q QUIT", color_bright_cyan());
     builder_append(frame, reset());
     write(stdout(), builder_borrow_string(frame));
 }
@@ -187,7 +237,7 @@ fn effect_timer(frame: StringBuilder, letter: str8, ticks: i64) -> void {
     }
 }
 
-fn render(g: &Game, frame: StringBuilder, too_small: bool) -> void {
+fn render(g: &Game, frame: StringBuilder, too_small: bool, player: str8) -> void {
     builder_clear(frame);
     builder_append(frame, cursor_code(cmd_home()));
     builder_append(frame, reset());
@@ -205,6 +255,8 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool) -> void {
     builder_append(frame, fg(color_bright_black()));
     builder_append(frame, "     ");
     builder_append(frame, level_name(g.level));
+    builder_append(frame, " / ");
+    builder_append(frame, player);
     builder_append(frame, reset());
     builder_append(frame, clear_eol());
     builder_append(frame, "\r\n  SCORE ");
@@ -279,8 +331,11 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool) -> void {
                 builder_append(frame, "✦");
             } else if y >= 2 && y < 7 && x % 5 < 4 && g.bricks[(y - 2) * 12 + x / 5] > 0 {
                 builder_append(frame, fg(brick_color(g.level, (y - 2) * 12 + x / 5)));
-                if g.bricks[(y - 2) * 12 + x / 5] > 1 { builder_append(frame, "▓"); }
-                else { builder_append(frame, "█"); }
+                let index: i64 = (y - 2) * 12 + x / 5;
+                if g.bricks[index] > 1 && (x % 5 == 0 || x % 5 == 3) {
+                    builder_append(frame, fg(color_bright_white()));
+                }
+                builder_append(frame, brick_glyph(g.level, index, g.bricks[index], x % 5));
             } else if g.flash_ticks > 0 && y == g.flash_y && magnitude(x - g.flash_x) < 3 {
                 builder_append(frame, fg(color_bright_yellow()));
                 builder_append(frame, "·");
@@ -303,7 +358,7 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool) -> void {
     builder_append(frame, clear_eol());
     builder_append(frame, "\r\n  ");
     builder_append(frame, fg(color_bright_yellow()));
-    if g.over { builder_append(frame, "GAME OVER / R to restart"); }
+    if g.over { builder_append(frame, "GAME OVER / R restart / N new pilot / T scores"); }
     else if g.paused { builder_append(frame, "PAUSED / P to resume"); }
     else if g.ready && g.blast_ticks > 0 { builder_append(frame, "NUKE! WAVE CLEARED / SPACE to launch"); }
     else if g.ready {
@@ -323,7 +378,7 @@ fn render(g: &Game, frame: StringBuilder, too_small: bool) -> void {
     effect_timer(frame, "C", g.catch_ticks);
     builder_append(frame, reset());
     builder_append(frame, clear_eol());
-    builder_append(frame, "\r\n  H/L or ←/→ move  SPACE launch  P pause  R restart  Q quit");
+    builder_append(frame, "\r\n  H/L ←/→ move  SPACE launch  P pause  R reset  T scores  Q quit");
     builder_append(frame, clear_eol());
     write(stdout(), builder_borrow_string(frame));
 }
@@ -338,7 +393,16 @@ fn main() -> i32 {
         return 1;
     }
     print!("{}{}{}", alt_screen_on(), cursor_code(cmd_hide()), cursor_code(cmd_clear_screen()));
-    var g: Game = new_game(0);
+    let score_file: str8 = highscore_path();
+    var scores: Highscores = load_highscores(score_file);
+    var g: Game = new_game(scores.count > 0 ? scores.points[0] : 0);
+    var player: str8 = format!("PLAYER");
+    let name_editor: StringBuilder = builder_new(32);
+    var naming: bool = false;
+    var showing_scores: bool = false;
+    var save_failed: bool = false;
+    var last_recorded: i64 = 0;
+    var over_seen: bool = false;
     let frame: StringBuilder = builder_new(16000);
     var running: bool = true;
     var welcome: bool = true;
@@ -361,10 +425,69 @@ fn main() -> i32 {
         for i in 0..128 {
             let key: i32 = read_keycode_nonblocking(stdin());
             if key == -2 { break; }
-            if key == -1 || key == 3 || key == 113 || key == 81 { running = false; break; }
+            if key == -1 || key == 3 { running = false; break; }
+            if naming {
+                if !small && (key == 13 || key == 10) {
+                    free(player);
+                    player = normalize_name(builder_borrow_string(name_editor));
+                    naming = false;
+                    g = new_game(scores.count > 0 ? scores.points[0] : 0);
+                    last_recorded = 0;
+                    over_seen = false;
+                    launch_after = now + 250;
+                    print!("{}", cursor_code(cmd_clear_screen()));
+                    break;
+                } else if key == 27 {
+                    naming = false;
+                    welcome = true;
+                    print!("{}", cursor_code(cmd_clear_screen()));
+                } else if key == 127 || key == 8 {
+                    if builder_len(name_editor) > 0 {
+                        let old: str8 = builder_to_string(name_editor);
+                        let shortened: str8 = sub(old, 0, len(old) - 1);
+                        builder_clear(name_editor);
+                        builder_append(name_editor, shortened);
+                        free(shortened);
+                        free(old);
+                    }
+                } else if name_key(key) != 0 && builder_len(name_editor) < 12 {
+                    builder_append_char(name_editor, name_key(key));
+                }
+                continue;
+            }
+            if key == 113 || key == 81 { running = false; break; }
+            if g.over && (key == 110 || key == 78) {
+                showing_scores = false;
+                naming = true;
+                builder_clear(name_editor);
+                print!("{}", cursor_code(cmd_clear_screen()));
+                continue;
+            }
+            if showing_scores {
+                if g.over && (key == 114 || key == 82) {
+                    g = new_game(scores.count > 0 ? scores.points[0] : g.best);
+                    last_recorded = 0;
+                    over_seen = false;
+                    showing_scores = false;
+                } else if key == 116 || key == 84 || key == 13 || key == 10 || key == 32 || key == 27 {
+                    showing_scores = false;
+                    launch_after = now + 250;
+                }
+                print!("{}", cursor_code(cmd_clear_screen()));
+                continue;
+            }
+            if key == 116 || key == 84 {
+                showing_scores = true;
+                direction = 0;
+                input_until = 0;
+                print!("{}", cursor_code(cmd_clear_screen()));
+                continue;
+            }
             if welcome {
                 if !small && (key == 32 || key == 13 || key == 10) {
                     welcome = false;
+                    naming = true;
+                    builder_clear(name_editor);
                     escape_state = 0;
                     accumulator = 0;
                     launch_after = now + 250;
@@ -398,6 +521,8 @@ fn main() -> i32 {
             } else if key == 114 || key == 82 {
                 let best: i64 = g.best;
                 g = new_game(best);
+                last_recorded = 0;
+                over_seen = false;
                 direction = 0;
                 input_until = 0;
             }
@@ -413,20 +538,39 @@ fn main() -> i32 {
         }
         accumulator += clamp(now - previous, 0, 64);
         previous = now;
-        if small || welcome { accumulator = 0; }
+        if small || welcome || naming || showing_scores { accumulator = 0; }
         while accumulator >= 8 {
             tick(&mut g, now <= input_until ? direction : 0);
             accumulator -= 8;
         }
+        if !welcome && !naming && g.score > last_recorded {
+            if record_score(&mut scores, player, g.score, g.level) {
+                save_failed = !save_highscores(&scores, score_file);
+            }
+            last_recorded = g.score;
+        }
+        if g.over && !over_seen && !naming {
+            over_seen = true;
+            showing_scores = true;
+            print!("{}", cursor_code(cmd_clear_screen()));
+        }
         if now >= next_frame {
-            if welcome && !small { render_intro(frame, now - intro_started); }
-            else { render(&g, frame, small); }
+            if showing_scores && !small { render_highscores(&scores, frame, save_failed, g.over); }
+            else if naming && !small { render_name(frame, name_editor); }
+            else if welcome && !small { render_intro(frame, now - intro_started); }
+            else { render(&g, frame, small, player); }
             next_frame = now + 16;
         }
         sleep_ms(2);
     }
+    if save_failed { save_failed = !save_highscores(&scores, score_file); }
+    builder_free(name_editor);
     builder_free(frame);
+    free_highscores(&mut scores);
+    free(player);
     let _ = stdin_restore();
     print!("{}{}{}\n", reset(), cursor_code(cmd_show()), alt_screen_off());
+    if save_failed { println!("High scores could not be saved to {}", score_file); }
+    free(score_file);
     return 0;
 }
